@@ -1,5 +1,6 @@
 import { ledgerMarkup, mountLedger } from './ledger';
 import { walletErrorMessage } from './error-message';
+import { filterLoadedActivity } from './activity-filter';
 import { backupStage, recordBackup, backupGuidance } from './backup-status';
 import { inspectSubmissions, submissionDetail, submitTracked } from './transaction-reliability';
 import { nativeJournalKey, parseJournal, type TokenSubmission } from './token-journal';
@@ -46,6 +47,7 @@ let sidebarCollapsed = localStorage.getItem('forma.sidebar.collapsed') === 'true
 let mobileMenuOpen = false;
 let activityFilter = 'all';
 let activityQuery = '';
+let activityStatus = 'all';
 let amountsHidden = localStorage.getItem('forma.amounts.hidden') === 'true';
 let sendRevision = 0;
 type Theme = 'system' | 'light' | 'dark';
@@ -183,6 +185,7 @@ function lock() {
   balance = '—';
   history = [];
   activityQuery = '';
+  activityStatus = 'all';
   view = 'overview';
   clearTimeout(idle);
   notice = 'Wallet locked. Unlock with your local password.';
@@ -262,8 +265,7 @@ function render() {
 }
 
 function activityRows() {
-  const query = activityQuery.trim().toLowerCase();
-  const filtered = history.filter(t => (activityFilter === 'all' || (activityFilter === 'sent' ? t.from.toLowerCase() === active!.address.toLowerCase() : t.from.toLowerCase() !== active!.address.toLowerCase())) && (!query || [t.hash, t.from, t.to].some(value => value.toLowerCase().includes(query))));
+  const filtered = filterLoadedActivity(history, active!.address, activityFilter, activityStatus, activityQuery);
   if (!filtered.length) return '<div class="empty"><h3>No matching activity.</h3><p>Clear your search, change the filter, or load more activity. Search covers loaded ETH records only.</p></div>';
   return filtered.map(t => {
     const sent = t.from.toLowerCase() === active!.address.toLowerCase();
@@ -299,7 +301,7 @@ function dashboard() {
   <section class="card security"><div class="eyebrow">WALLET HEALTH <span class="dot"></span></div><h2>Keep ownership.<br>Keep a backup.</h2><p>Your encrypted backup and password recover this wallet if this browser’s data is lost.</p><p role="status">${escape(backupGuidance(backupStage(localStorage, active!.address, localStorage.getItem(VAULT_KEY) || '')))}</p><button id="backup" class="quiet">↓ Download encrypted backup</button><button id="backup-verify" class="quiet">Verify a saved backup</button><small>Status is a local reminder, not a guarantee of recovery. Auto-locks after 5 minutes idle or when hidden.</small></section></div>
   <div class="wallet-grid lower" id="transfer-panels"><section class="card" id="send-card"><div class="section-heading"><h2>Send crypto</h2><span>↗</span></div><form id="send-form"><label for="eth-contact">Saved recipient (optional)</label><select id="eth-contact">${contactOptions(active!.address)}</select><label for="recipient">Recipient address</label><input id="recipient" placeholder="0x…" required autocomplete="off"><label for="amount">Amount in Sepolia ETH</label><input id="amount" placeholder="0.00" inputmode="decimal" required autocomplete="off"><p class="hint">Only send on Ethereum Sepolia. Check the full address.</p><button class="primary" ${busy ? 'disabled' : ''}>Review transfer →</button></form><div id="review"></div></section>
   <section class="card" id="receive-card"><div class="section-heading"><h2>Receive crypto</h2><span>↙</span></div><div class="receive"><canvas id="qr"></canvas><strong>Ethereum Sepolia only</strong><code>${address}</code><button id="save-receive-qr" type="button" class="quiet">Save receive QR image</button><p>Share your public address. Never share your password or backup.</p><a href="https://sepolia.etherscan.io/address/${address}" target="_blank" rel="noopener noreferrer">View full activity on explorer ↗</a></div></section></div>
-  <section class="card activity" id="activity-panel"><div class="section-heading"><h2>Transaction history</h2><button id="history-refresh" class="quiet">Refresh activity</button></div><div class="activity-toolbar"><div class="filter-tabs" aria-label="Filter activity">${['all','received','sent'].map(filter => `<button data-filter="${filter}" class="${activityFilter === filter ? 'is-active' : ''}" aria-pressed="${activityFilter === filter}">${filter[0].toUpperCase()+filter.slice(1)}</button>`).join('')}</div><span class="activity-count">${history.length} indexed records</span></div><p class="hint">${escape(historyNotice)}</p><h3>Locally submitted ETH</h3><p class="hint">Unknown does not mean failed. Refresh activity to check receipts. Do not retry an uncertain transfer automatically.</p><div id="eth-submissions">${nativeSubmissionRows()}</div><label for="activity-search">Search ETH history</label><input id="activity-search" type="search" maxlength="100" autocomplete="off" placeholder="Address or transaction hash" value="${escape(activityQuery)}"><p class="hint">Searches loaded ETH records only. Load older activity to extend results.</p><div id="activity-search-results">${activityRows()}</div>${cursors.some(Boolean) ? '<button id="load-more" class="quiet">Load older activity</button>' : ''}<p><a href="https://eth-sepolia.blockscout.com/address/${address}" target="_blank" rel="noopener noreferrer">View complete activity on explorer</a></p></section>`;
+  <section class="card activity" id="activity-panel"><div class="section-heading"><h2>Transaction history</h2><button id="history-refresh" class="quiet">Refresh activity</button></div><div class="activity-toolbar"><div class="filter-tabs" aria-label="Filter activity">${['all','received','sent'].map(filter => `<button data-filter="${filter}" class="${activityFilter === filter ? 'is-active' : ''}" aria-pressed="${activityFilter === filter}">${filter[0].toUpperCase()+filter.slice(1)}</button>`).join('')}</div><span class="activity-count">${history.length} indexed records</span></div><p class="hint">${escape(historyNotice)}</p><h3>Locally submitted ETH</h3><p class="hint">Unknown does not mean failed. Refresh activity to check receipts. Do not retry an uncertain transfer automatically.</p><div id="eth-submissions">${nativeSubmissionRows()}</div><label for="activity-status">Transaction status</label><select id="activity-status">${["all", "pending", "confirmed", "failed"].map(status => `<option value="${status}" ${activityStatus === status ? "selected" : ""}>${status === "all" ? "All statuses" : status[0].toUpperCase() + status.slice(1)}</option>`).join("")}</select><label for="activity-search">Search ETH history</label><input id="activity-search" type="search" maxlength="100" autocomplete="off" placeholder="Address or transaction hash" value="${escape(activityQuery)}"><p class="hint">Searches loaded ETH records only. Load older activity to extend results.</p><div id="activity-search-results">${activityRows()}</div>${cursors.some(Boolean) ? '<button id="load-more" class="quiet">Load older activity</button>' : ''}<p><a href="https://eth-sepolia.blockscout.com/address/${address}" target="_blank" rel="noopener noreferrer">View complete activity on explorer</a></p></section>`;
 
 }
 
@@ -334,6 +336,12 @@ async function refresh() {
 }
 
 function bind() {
+  document.getElementById('activity-status')?.addEventListener('change', event => {
+    activityStatus = (event.target as HTMLSelectElement).value;
+    const rows = document.getElementById('activity-search-results');
+    if (rows) rows.innerHTML = activityRows();
+    updateAmountVisibility();
+  });
   document.getElementById('save-receive-qr')?.addEventListener('click', () => void task(async () => {
     if (!active) return;
     const owner = active.address, version = generation;
