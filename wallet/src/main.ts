@@ -1,4 +1,5 @@
 import { ledgerMarkup, mountLedger } from './ledger';
+import { walletErrorMessage } from './error-message';
 import { inspectSubmissions, submissionDetail, submitTracked } from './transaction-reliability';
 import { nativeJournalKey, parseJournal, type TokenSubmission } from './token-journal';
 import { watchMarkup, mountWatch, watchReadApi } from './watch-only';
@@ -304,7 +305,7 @@ async function task(fn: () => Promise<void>) {
   root.setAttribute('aria-busy', 'true');
   root.querySelectorAll<HTMLButtonElement>('form button, #refresh, #history-refresh, #load-more').forEach(b => { b.disabled = true; b.dataset.originalText = b.textContent || ''; b.textContent = 'Working...'; });
   try { await fn(); } catch (error) {
-    notice = error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+    notice = walletErrorMessage(error);
     const el = document.getElementById('notice');
     if (el) el.textContent = notice;
   } finally {
