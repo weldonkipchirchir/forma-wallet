@@ -2,9 +2,11 @@
 
 Standalone browser wallet. The existing event app is unchanged.
 
+One primary wallet unlocks Ethereum Sepolia, Bitcoin Testnet3 and Solana Devnet accounts from the same recovery phrase and encrypted backup. Use the Network selector or Overview account buttons. Older separate BTC/SOL wallets remain accessible under Recovery & import. See [MULTICHAIN.md](MULTICHAIN.md) for recovery, migration, supported paths and limitations. The USD portfolio estimate remains Ethereum-specific.
+
 ## Run
 
-Requires Node 22.12+ (Node 24 recommended).
+Requires Node 24.x.
 
 ```powershell
 cd D:\event-flow-app\wallet

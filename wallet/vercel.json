@@ -10,7 +10,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://ethereum-sepolia-rpc.publicnode.com https://eth-sepolia.blockscout.com https://data-api.binance.vision https://api.exchange.coinbase.com https://manager.api.live.ledger.com https://global.api.prd.ledger.com; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://ethereum-sepolia-rpc.publicnode.com https://eth-sepolia.blockscout.com https://data-api.binance.vision https://api.exchange.coinbase.com https://manager.api.live.ledger.com https://global.api.prd.ledger.com https://blockstream.info https://api.devnet.solana.com; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
         },
         {
           "key": "X-Content-Type-Options",

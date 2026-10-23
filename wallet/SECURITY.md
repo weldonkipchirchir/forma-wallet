@@ -2,6 +2,10 @@
 
 Scope: local Forma browser wallet source, imports/recovery, transfer review, history rendering, network configuration, dependency audit and appearance. This is an engineering review, not an independent audit or penetration test.
 
+## Bitcoin and Solana extension — 23 October 2026
+
+The shared-primary-wallet Bitcoin Testnet3 / Solana Devnet accounts, preserved older separate vault and native transfer implementation is documented in [MULTICHAIN.md](MULTICHAIN.md). It uses pinned transaction/crypto dependencies, bounded encrypted imports, deterministic network-specific paths, genesis identity checks, review-bound signing, BTC previous-output validation, Solana simulation, cross-tab operation locks and durable pre-broadcast unknown-submission records. Public addresses and signed transactions are disclosed to the selected testnet service. Mainnet, arbitrary instructions, SPL assets, automatic account discovery and Ledger signing for these networks are unsupported. Primary encrypted backups and password changes are tested for preserving all three network addresses, including older wrapped-backup import. Raw Ethereum-key and BIP-39-passphrase imports are excluded from shared derivation. Independent audit, funded end-to-end transfers, physical-phone testing and two-browser restore remain outstanding; automated/offline and local UI checks do not establish real-fund readiness.
+
 ## Changes made
 
 - Validate cached transaction records before rendering; allow only known statuses, IDs, hashes, addresses, amounts and timestamps. Escape the status CSS attribute as well as text.

@@ -33,10 +33,12 @@ let exactBalance: bigint | null = null;
 let notice = '';
 let history: Activity[] = [];
 let view = 'overview';
+let primaryChain: 'btc' | 'sol' = 'btc';
 let disposeMarket: (() => void) | undefined;
 let disposePortfolio: (() => void) | undefined;
 let disposeTokens: (() => void) | undefined;
 let disposeLedger: (() => void) | undefined;
+let disposeMulti: (() => void) | undefined;
 let disposeWatch: (() => void) | undefined;
 let disposeTokenSummary: (() => void) | undefined;
 let historyNotice = 'Refresh to load on-chain activity.';
@@ -79,6 +81,8 @@ function updateAmountVisibility() {
   if (portfolioToggle) { portfolioToggle.textContent = amountsHidden ? 'Show holdings' : 'Hide holdings'; portfolioToggle.setAttribute('aria-pressed', String(amountsHidden)); }
 }
 const pages: Record<string, { title: string; subtitle: string; icon: string }> = {
+  multi: { title: 'Your wallet, across networks.', subtitle: 'One recovery phrase. Ethereum, Bitcoin Testnet and Solana Devnet.', icon: '₿' },
+  'legacy-multi': { title: 'Older imported BTC & SOL wallet.', subtitle: 'Preserve access to accounts created with a separate recovery phrase.', icon: '₿' },
   tokens: { title: 'More assets. Same wallet.', subtitle: 'Track and transfer ERC-20 tokens on Ethereum Sepolia.', icon: 'T' },
   portfolio: { title: 'Your portfolio, at a glance.', subtitle: 'Holdings and activity for your current wallet.', icon: '◈' },
   overview: { title: 'Your money. Your move.', subtitle: 'A simple home for your digital assets.', icon: '▦' },
@@ -129,7 +133,7 @@ function loadHistory() {
 }
 function persistHistory() { if (active) localStorage.setItem(historyKey(active.address), JSON.stringify(history)); }
 function clearSecrets() { clearTimeout(revealTimer); document.getElementById('phrase-display')?.replaceChildren(); }
-function navigate(next: string) { generation++; clearSecrets(); pending = null; view = next; render(); }
+function navigate(next: string) { if (next === 'multi' && !active) next = 'overview'; generation++; clearSecrets(); pending = null; view = next; render(); }
 
 function nativeSubmissions(address: string) {
   try { return parseJournal(JSON.parse(localStorage.getItem(nativeJournalKey(address)) || '[]')); } catch { return []; }
@@ -205,7 +209,7 @@ function portfolioTotals() {
 }
 
 function portfolio() {
-  return `<section id="portfolio-panel"><div class="portfolio-grid"><section class="balance-card"><div class="eyebrow">TOTAL HOLDINGS <button id="portfolio-privacy" class="amount-visibility" aria-pressed="${amountsHidden}">Hide holdings</button></div><div class="balance"><span id="portfolio-balance">—</span> <small>ETH</small></div><p>Ethereum Sepolia · Test assets only</p><div class="portfolio-value"><span id="portfolio-usd">Loading USD price...</span><small> Hypothetical USD value</small></div><p>Simulation only: test ETH has no actual USD value. The estimate uses real Coinbase ETH/USD prices.</p><button class="primary" id="portfolio-receive">Receive test ETH</button></section><section class="card"><div class="eyebrow">SUPPORTED ASSETS</div><h2>One network.<br>Your own keys.</h2><p>Track native Sepolia ETH and imported ERC-20 tokens. Other networks are not supported.</p><button class="quiet" id="portfolio-refresh">Refresh portfolio</button></section></div>
+  return `<section id="portfolio-panel"><div class="portfolio-grid"><section class="balance-card"><div class="eyebrow">TOTAL HOLDINGS <button id="portfolio-privacy" class="amount-visibility" aria-pressed="${amountsHidden}">Hide holdings</button></div><div class="balance"><span id="portfolio-balance">—</span> <small>ETH</small></div><p>Ethereum Sepolia · Test assets only</p><div class="portfolio-value"><span id="portfolio-usd">Loading USD price...</span><small> Hypothetical USD value</small></div><p>Simulation only: test ETH has no actual USD value. The estimate uses real Coinbase ETH/USD prices.</p><button class="primary" id="portfolio-receive">Receive test ETH</button></section><section class="card"><div class="eyebrow">SUPPORTED ASSETS</div><h2>One network.<br>Your own keys.</h2><p>This view values Sepolia ETH and ERC-20 tokens. Use the network selector for your Bitcoin Testnet and Solana Devnet accounts; their balances are not included in this Ethereum estimate.</p><button class="quiet" id="portfolio-refresh">Refresh portfolio</button></section></div>
   <section class="card portfolio-assets"><div class="section-heading"><h2>Assets</h2><span class="pill">Ethereum Sepolia</span></div><div class="asset-row"><div class="asset-symbol">Ξ</div><div><strong>Ethereum</strong><p>Sepolia ETH</p></div><div class="asset-network"><strong>Testnet</strong><p>No monetary value</p></div><button id="portfolio-send" class="quiet">Send ETH</button></div><p class="hint">Your current native ETH balance appears above. USD figures below are hypothetical reference values, not redeemable funds or investment returns.</p></section>
   <section class="card portfolio-assets" id="token-assets-summary"></section><button class="quiet" id="portfolio-tokens">Manage ERC-20 tokens</button><section class="card portfolio-performance"><div class="eyebrow">HYPOTHETICAL UNREALIZED GAIN / LOSS</div><h2 id="portfolio-pnl">Loading deposit prices...</h2><p id="portfolio-since">Finding earliest loaded deposit...</p><p id="portfolio-basis"></p><p class="hint">Weighted-average deposit-minute USD price; withdrawals reduce the remaining basis proportionally. Gas, realized returns and external acquisition costs are excluded. Estimates use loaded history and may be incomplete.</p><p id="portfolio-price-source" class="hint"></p></section><section class="card portfolio-deposits"><h2>Deposit valuation history</h2><p class="hint">Latest 25 loaded deposits. Each compares the deposit-minute ETH/USD open with today's quote for that original amount, even if some ETH was later sent.</p><div id="portfolio-deposit-history"></div></section><div class="portfolio-grid portfolio-flow"><section class="card"><div class="eyebrow">RECEIVED · LOADED HISTORY</div><h2><span id="portfolio-received">—</span> ETH</h2><p>Confirmed incoming transfers, excluding self-transfers.</p></section><section class="card"><div class="eyebrow">SENT · LOADED HISTORY</div><h2><span id="portfolio-sent">—</span> ETH</h2><p>Confirmed outgoing transfers, excluding network fees and self-transfers.</p></section></div><p class="hint">Flow totals use ${history.length} locally loaded records, including internal transfers. They are not lifetime totals or a profit/loss calculation. Load older records under Activity to extend coverage.</p><button id="portfolio-activity" class="quiet">View transaction history</button></section>`;
 }
@@ -224,6 +228,7 @@ function render() {
   disposePortfolio?.(); disposePortfolio = undefined;
   disposeTokens?.(); disposeTokens = undefined;
   disposeLedger?.(); disposeLedger = undefined;
+  disposeMulti?.(); disposeMulti = undefined;
   disposeWatch?.(); disposeWatch = undefined;
   disposeTokenSummary?.(); disposeTokenSummary = undefined;
   root.classList.toggle('wallet-locked', !active);
@@ -231,13 +236,13 @@ function render() {
   root.classList.toggle('is-ledger', view === 'ledger');
   const hasVault = !!localStorage.getItem(VAULT_KEY);
   const page = pages[view] || pages.overview;
-  root.innerHTML = `<button id="sidebar-backdrop" aria-label="Close navigation" tabindex="-1"></button><aside id="wallet-sidebar"><a class="brand" href="/">◈ <span>forma</span></a><button id="sidebar-toggle" class="sidebar-toggle" aria-controls="wallet-sidebar" title="Toggle sidebar"></button><div class="workspace">PERSONAL WALLET</div><nav aria-label="Wallet navigation">${[['overview','Overview'],['portfolio','Portfolio'],['tokens','Tokens'],['transfer','Send & receive'],['market','Market'],['activity','Activity'],['ledger','Ledger'],['watch','Watch-only'],['contacts','Contacts'],['settings','Recovery & import']].map(([id,label]) => `<button data-view="${id}" title="${label}" aria-label="${label}" ${!active && id !== 'overview' ? 'disabled' : ''} class="${view === id ? 'selected' : ''}" aria-current="${view === id ? 'page' : 'false'}"><span class="nav-icon" aria-hidden="true">${pages[id].icon}</span><span class="nav-label">${label}</span></button>`).join('')}</nav><div class="aside-bottom"><span class="dot"></span> Your keys. Your control.<small>Self-custody, by design.</small></div></aside>
-    <main><header><a href="/" class="entry-brand" aria-label="Forma home"><span aria-hidden="true">&#9672;</span> forma<span class="brand-caption">YOUR PERSONAL WALLET</span></a><button id="mobile-menu-toggle" class="quiet" aria-label="Open navigation" aria-controls="wallet-sidebar">&#9776;</button><div class="crumb">My wallet <span>/</span> ${view === 'overview' ? 'Overview' : view === 'transfer' ? 'Send & receive' : view === 'activity' ? 'Activity' : view === 'market' ? 'Market' : view === 'portfolio' ? 'Portfolio' : view === 'tokens' ? 'Tokens' : view === 'contacts' ? 'Contacts' : view === 'watch' ? 'Watch-only' : view === 'ledger' ? 'Ledger' : 'Recovery & import'}</div><div class="header-tools"><label class="theme-control" for="theme-select"><span>Appearance</span><select id="theme-select" aria-label="Appearance">${['system','light','dark'].map(t => `<option value="${t}" ${theme === t ? 'selected' : ''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}</select></label><div class="network"><span class="dot"></span> Ethereum Sepolia <b>TESTNET</b></div></div></header>
+  root.innerHTML = `<button id="sidebar-backdrop" aria-label="Close navigation" tabindex="-1"></button><aside id="wallet-sidebar"><a class="brand" href="/">◈ <span>forma</span></a><button id="sidebar-toggle" class="sidebar-toggle" aria-controls="wallet-sidebar" title="Toggle sidebar"></button><div class="workspace">PERSONAL WALLET</div><nav aria-label="Wallet navigation">${[['overview','Overview'],['portfolio','Portfolio'],['tokens','Tokens'],['multi','Bitcoin & Solana'],['transfer','Send & receive'],['market','Market'],['activity','Activity'],['ledger','Ledger'],['watch','Watch-only'],['contacts','Contacts'],['settings','Recovery & import']].map(([id,label]) => `<button data-view="${id}" title="${label}" aria-label="${label}" ${!active && id !== 'overview' ? 'disabled' : ''} class="${view === id ? 'selected' : ''}" aria-current="${view === id ? 'page' : 'false'}"><span class="nav-icon" aria-hidden="true">${pages[id].icon}</span><span class="nav-label">${label}</span></button>`).join('')}</nav><div class="aside-bottom"><span class="dot"></span> Your keys. Your control.<small>Self-custody, by design.</small></div></aside>
+    <main><header><a href="/" class="entry-brand" aria-label="Forma home"><span aria-hidden="true">&#9672;</span> forma<span class="brand-caption">YOUR PERSONAL WALLET</span></a><button id="mobile-menu-toggle" class="quiet" aria-label="Open navigation" aria-controls="wallet-sidebar">&#9776;</button><div class="crumb">My wallet <span>/</span> ${view === 'multi' ? 'Bitcoin & Solana' : view === 'overview' ? 'Overview' : view === 'transfer' ? 'Send & receive' : view === 'activity' ? 'Activity' : view === 'market' ? 'Market' : view === 'portfolio' ? 'Portfolio' : view === 'tokens' ? 'Tokens' : view === 'contacts' ? 'Contacts' : view === 'watch' ? 'Watch-only' : view === 'ledger' ? 'Ledger' : 'Recovery & import'}</div><div class="header-tools"><label class="theme-control" for="theme-select"><span>Appearance</span><select id="theme-select" aria-label="Appearance">${['system','light','dark'].map(t => `<option value="${t}" ${theme === t ? 'selected' : ''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}</select></label>${active && view !== 'legacy-multi' ? `<label class="network-control" for="network-select"><span>Network</span><select id="network-select" aria-label="Wallet network">${[["eth","Ethereum Sepolia"],["btc","Bitcoin Testnet3"],["sol","Solana Devnet"]].map(([id,label]) => `<option value="${id}" ${id === (view === "multi" ? primaryChain : "eth") ? "selected" : ""}>${label}</option>`).join("")}</select></label>` : ''}<div class="network"><span class="dot"></span> ${view === 'legacy-multi' ? 'Imported BTC / SOL' : view === 'multi' ? primaryChain === 'btc' ? 'Bitcoin Testnet3' : 'Solana Devnet' : 'Ethereum Sepolia'} <b>TESTNET</b></div></div></header>
     <section class="content"><div class="title-row"><div><div class="eyebrow">A LITTLE MORE OWNERSHIP</div><h1>${page.title}</h1><p>${page.subtitle}</p></div>${active ? '<button id="lock" class="quiet">⌑ Lock wallet</button>' : '<span class="pill">◈ Self-custody</span>'}</div>
     <div class="test-banner">◇ <span><strong>You’re on a test network.</strong> Use test tokens only. This prototype has not been audited.</span></div>
     <div id="notice" role="status" aria-live="polite">${escape(notice)}</div>
-    ${view === 'ledger' ? ledgerMarkup() : view === 'watch' ? watchMarkup() : active ? dashboard() + portfolio() + tokensMarkup() + marketMarkup() + settings() + contactsMarkup(active.address) : onboarding(hasVault)}
-    <footer class="wallet-footer"><div class="footer-brand"><strong>FORMA</strong><span>Your keys. Your control.</span></div><div class="footer-meta"><span><i class="dot"></i>Ethereum Sepolia</span><span>Self-custody</span><span class="footer-version">Prototype v0.1</span></div></footer></section></main>`;
+    ${view === 'multi' || view === 'legacy-multi' ? '<section id="multi-panel" class="multichain-workspace"><p role="status">Loading Bitcoin & Solana wallets…</p></section>' : view === 'ledger' ? ledgerMarkup() : view === 'watch' ? watchMarkup() : active ? dashboard() + portfolio() + tokensMarkup() + marketMarkup() + settings() + contactsMarkup(active.address) : onboarding(hasVault)}
+    <footer class="wallet-footer"><div class="footer-brand"><strong>FORMA</strong><span>Your keys. Your control.</span></div><div class="footer-meta"><span id="footer-network"><i class="dot"></i>${view === 'legacy-multi' ? 'Imported BTC / SOL' : view === 'multi' ? primaryChain === 'btc' ? 'Bitcoin Testnet3' : 'Solana Devnet' : 'Ethereum Sepolia'}</span><span>Self-custody</span><span class="footer-version">Prototype v0.1</span></div></footer></section></main>`;
   document.getElementById('lock')?.addEventListener('click', lock);
   bind();
   updateAmountVisibility();
@@ -250,13 +255,39 @@ function render() {
   document.getElementById('mobile-menu-toggle')!.onclick = () => { mobileMenuOpen = !mobileMenuOpen; updateSidebar(); if (mobileMenuOpen) root.querySelector<HTMLButtonElement>('[data-view]:not(:disabled)')?.focus(); };
   document.getElementById('sidebar-backdrop')!.onclick = () => { mobileMenuOpen = false; updateSidebar(); document.getElementById('mobile-menu-toggle')?.focus(); };
   root.querySelectorAll<HTMLButtonElement>('[data-view]').forEach(button => button.onclick = () => { mobileMenuOpen = false; navigate(button.dataset.view!); });
-  const groups = ['wallet-summary', 'transfer-panels', 'activity-panel', 'settings-panel', 'market-panel', 'portfolio-panel', 'tokens-panel', 'contacts-panel', 'watch-panel', 'ledger-panel'];
-  const visible = view === 'overview' ? groups.slice(0, 3) : view === 'transfer' ? ['transfer-panels'] : view === 'activity' ? ['activity-panel'] : view === 'market' ? ['market-panel'] : view === 'portfolio' ? ['portfolio-panel'] : view === 'tokens' ? ['tokens-panel'] : view === 'contacts' ? ['contacts-panel'] : view === 'watch' ? ['watch-panel'] : view === 'ledger' ? ['ledger-panel'] : ['settings-panel'];
+  const groups = ['wallet-summary', 'transfer-panels', 'activity-panel', 'settings-panel', 'market-panel', 'portfolio-panel', 'tokens-panel', 'contacts-panel', 'watch-panel', 'ledger-panel', 'network-accounts'];
+  const visible = view === 'overview' ? [...groups.slice(0, 3), 'network-accounts'] : view === 'transfer' ? ['transfer-panels'] : view === 'activity' ? ['activity-panel'] : view === 'market' ? ['market-panel'] : view === 'portfolio' ? ['portfolio-panel'] : view === 'tokens' ? ['tokens-panel'] : view === 'contacts' ? ['contacts-panel'] : view === 'watch' ? ['watch-panel'] : view === 'ledger' ? ['ledger-panel'] : ['settings-panel'];
   groups.forEach(id => { const el = document.getElementById(id); if (el) el.hidden = !visible.includes(id); });
   if (active && view === 'portfolio') disposePortfolio = mountPortfolioValue(document.getElementById('portfolio-panel')!, history, active.address, exactBalance, () => amountsHidden);
   if (active && view === 'tokens') { const wallet = active; const version = generation; disposeTokens = mountTokens(document.getElementById('tokens-panel')!, provider, wallet, () => active === wallet && version === generation, () => amountsHidden); }
   if (active && view === 'portfolio') disposeTokenSummary = mountTokenSummary(document.getElementById('token-assets-summary')!, provider, active.address, () => amountsHidden);
   document.getElementById('open-ledger')?.addEventListener('click', () => { notice = 'Hardware wallet mode. Your local wallet remains locked.'; navigate('ledger'); });
+  if (view === 'multi' || view === 'legacy-multi') {
+    const host = document.getElementById('multi-panel')!, version = generation, wallet = active;
+    const shared = view === 'multi';
+    void import('./multichain').then(module => {
+      if (!host.isConnected || version !== generation) return;
+      if (shared && !wallet) { host.textContent = 'Unlock your wallet to open its network accounts.'; return; }
+      disposeMulti = module.mountMulti(host, shared && wallet ? {
+        wallet, chain: primaryChain, current: () => active === wallet && generation === version,
+        lock, backup: downloadWalletBackup,
+        select: chain => { primaryChain = chain; const select = document.getElementById('network-select') as HTMLSelectElement | null; if (select) select.value = chain; const footer = document.getElementById('footer-network'); if (footer) footer.textContent = chain === 'btc' ? 'Bitcoin Testnet3' : 'Solana Devnet'; },
+        hideBalance: () => amountsHidden,
+        toggleBalance: () => { amountsHidden = !amountsHidden; localStorage.setItem('forma.amounts.hidden', String(amountsHidden)); updateAmountVisibility(); },
+      } : undefined);
+    }).catch(() => { if (host.isConnected) host.textContent = 'Unable to load network accounts. Refresh to try again.'; });
+  }
+  document.getElementById('open-legacy-multi')?.addEventListener('click', () => navigate('legacy-multi'));
+  document.getElementById('network-select')?.addEventListener('change', event => {
+    const choice = (event.target as HTMLSelectElement).value;
+    if (choice === 'eth') navigate('overview');
+    else if (choice === 'btc' || choice === 'sol') { primaryChain = choice; navigate('multi'); }
+  });
+  root.querySelectorAll<HTMLButtonElement>('[data-account-network]').forEach(button => button.onclick = () => {
+    const choice = button.dataset.accountNetwork;
+    if (choice === 'eth') navigate('overview');
+    else if (choice === 'btc' || choice === 'sol') { primaryChain = choice; navigate('multi'); }
+  });
   if (view === 'ledger') disposeLedger = mountLedger(document.getElementById('ledger-panel')!, provider, () => navigate('overview'));
   document.getElementById('open-watch')?.addEventListener('click', () => { notice = 'Signing wallet remains locked. Watch-only mode needs no unlock.'; navigate('watch'); });
   if (view === 'watch') disposeWatch = mountWatch(document.getElementById('watch-panel')!, watchReadApi(provider), () => navigate('overview'), () => amountsHidden);
@@ -276,10 +307,10 @@ function activityRows() {
 function settings() {
   const saved = vaults();
   const current = active!.address.toLowerCase().replace(/^0x/, '');
-  return `<section id="settings-panel" class="card"><h2>Recovery & import</h2><p>Only use fresh test wallets here. Importing preserves the current encrypted wallet.</p>
+  return `<section id="settings-panel" class="card"><h2>Recovery & import</h2><p>For phrase-backed wallets, this encrypted backup restores your Ethereum, Bitcoin Testnet and Solana Devnet accounts. Imported Ethereum keys without a phrase remain Ethereum-only.</p><button type="button" id="open-legacy-multi" class="quiet">Open or restore an older BTC & SOL wallet</button><p>Only use fresh test wallets here. Importing preserves the current encrypted wallet.</p>
   <h3>Recovery phrase</h3><p>Your recovery phrase controls this wallet on every compatible network. Keep it offline and never share it.</p>
   <form id="reveal-form"><label for="reveal-password">Re-enter this wallet’s password</label><input type="password" id="reveal-password" autocomplete="current-password" required><button class="quiet">Reveal recovery phrase for 30 seconds</button></form><div id="phrase-display" aria-live="off"></div>
-  <h3>Import a recovery phrase</h3><form id="phrase-form"><label for="import-phrase">Recovery phrase</label><input type="password" id="import-phrase" autocomplete="off" autocapitalize="off" spellcheck="false" required placeholder="12 or 24 words, in order"><label for="seed-passphrase">Optional BIP-39 passphrase (not your wallet password)</label><input type="password" id="seed-passphrase" autocomplete="off"><label for="account-index">Account index (0 for the first account)</label><input id="account-index" type="number" min="0" max="100" value="0" required><p class="hint">Ethereum path m/44'/60'/0'/0/index. Other derivation paths are not supported yet.</p><label for="new-password">Local encryption password (12+ characters)</label><input id="new-password" type="password" minlength="12" autocomplete="new-password" required><label for="new-confirm">Confirm local password</label><input id="new-confirm" type="password" autocomplete="new-password" required><label class="check"><input type="checkbox" required> This is a test wallet. I understand the imported account may differ if the passphrase or account index is different.</label><button class="primary">Import & switch wallet</button></form>
+  <h3>Import a recovery phrase</h3><form id="phrase-form"><label for="import-phrase">Recovery phrase</label><input type="password" id="import-phrase" autocomplete="off" autocapitalize="off" spellcheck="false" required placeholder="12 or 24 words, in order"><label for="seed-passphrase">Optional BIP-39 passphrase (not your wallet password)</label><input type="password" id="seed-passphrase" autocomplete="off"><label for="account-index">Account index (0 for the first account)</label><input id="account-index" type="number" min="0" max="100" value="0" required><p class="hint">Ethereum path m/44'/60'/0'/0/index. Bitcoin and Solana use their fixed first-account paths from the same phrase. Non-empty BIP-39 passphrase imports remain Ethereum-only.</p><label for="new-password">Local encryption password (12+ characters)</label><input id="new-password" type="password" minlength="12" autocomplete="new-password" required><label for="new-confirm">Confirm local password</label><input id="new-confirm" type="password" autocomplete="new-password" required><label class="check"><input type="checkbox" required> This is a test wallet. I understand the imported account may differ if the passphrase or account index is different.</label><button class="primary">Import & switch wallet</button></form>
   <h3>Import an encrypted JSON backup</h3><form id="import-form"><label for="keystore">Encrypted keystore JSON</label><input id="keystore" type="file" accept=".json,application/json" required><label for="import-password">Backup password</label><input id="import-password" type="password" autocomplete="current-password" required><label for="backup-local-password">New local password (12+ characters)</label><input id="backup-local-password" type="password" minlength="12" autocomplete="new-password" required><label for="backup-local-confirm">Confirm new local password</label><input id="backup-local-confirm" type="password" autocomplete="new-password" required><button class="quiet">Import encrypted backup</button></form>
   <h3>Verify your backup</h3><p>Decrypt a downloaded backup and check its address against this wallet. Verification does not switch wallets.</p><form id="verify-backup-form"><label for="verify-backup-file">Backup JSON to verify</label><input id="verify-backup-file" type="file" accept=".json,application/json" required><label for="verify-backup-password">Password for this backup</label><input id="verify-backup-password" type="password" autocomplete="off" required><button class="quiet">Verify backup</button></form>
   <h3>Change wallet password</h3><p>Changes local encryption for this wallet only. Previously downloaded backups still use their original passwords. Download and verify a new backup afterwards.</p><form id="change-password-form"><label for="change-old-password">Current local password</label><input id="change-old-password" type="password" autocomplete="current-password" required><label for="change-new-password">New wallet password (12+ characters)</label><input id="change-new-password" type="password" minlength="12" autocomplete="new-password" required><label for="change-confirm-password">Confirm new wallet password</label><input id="change-confirm-password" type="password" autocomplete="new-password" required><button class="quiet">Change password & lock</button></form>
@@ -291,13 +322,13 @@ function onboarding(hasVault: boolean) {
   <form id="vault-form"><label for="password">${hasVault ? 'Wallet password' : 'Create a password'}</label><input id="password" type="password" minlength="12" required autocomplete="${hasVault ? 'current-password' : 'new-password'}" placeholder="Enter your wallet password"><p class="auth-input-hint">Your password unlocks this device only.</p>
   ${hasVault ? '' : '<label for="confirm">Confirm password</label><input id="confirm" type="password" required autocomplete="new-password" placeholder="Enter your password again"><label class="check"><input id="understand" type="checkbox" required> I will download my encrypted backup. There is no password reset.</label>'}
   <button class="primary" ${busy ? 'disabled' : ''}>${busy ? 'Working securely…' : hasVault ? 'Unlock wallet →' : 'Create test wallet →'}</button></form><div class="auth-encryption-note"><span aria-hidden="true">&#9671;</span> Encrypted locally. Your keys stay with you.</div><div class="auth-alternatives"><span>OTHER WAYS TO EXPLORE</span><button id="open-ledger" class="auth-option"><span class="auth-option-icon" aria-hidden="true">&#9636;</span><span><strong>Connect a Ledger</strong><small>Approve on your device</small></span><span aria-hidden="true">&#8599;</span></button><button id="open-watch" class="auth-option"><span class="auth-option-icon" aria-hidden="true">&#9678;</span><span><strong>Watch an address</strong><small>Explore without importing keys</small></span><span aria-hidden="true">&#8599;</span></button></div>
-  ${hasVault ? '' : '<div class="divider">Already have a backup?</div><form id="import-form"><label for="keystore">Encrypted keystore JSON</label><input id="keystore" type="file" accept=".json,application/json" required><label for="import-password">Backup password</label><input id="import-password" type="password" required autocomplete="current-password"><label for="backup-local-password">New local password (12+ characters)</label><input id="backup-local-password" type="password" minlength="12" autocomplete="new-password" required><label for="backup-local-confirm">Confirm new local password</label><input id="backup-local-confirm" type="password" autocomplete="new-password" required><button class="quiet" '+(busy ? 'disabled' : '')+'>Import encrypted backup</button></form>'}</section>
+  <p class="hint">One wallet and backup for Ethereum, Bitcoin Testnet and Solana Devnet.</p><button type="button" id="open-legacy-multi" class="quiet">Open or restore an older BTC & SOL wallet</button>${hasVault ? '' : '<div class="divider">Already have a backup?</div><form id="import-form"><label for="keystore">Encrypted keystore JSON</label><input id="keystore" type="file" accept=".json,application/json" required><label for="import-password">Backup password</label><input id="import-password" type="password" required autocomplete="current-password"><label for="backup-local-password">New local password (12+ characters)</label><input id="backup-local-password" type="password" minlength="12" autocomplete="new-password" required><label for="backup-local-confirm">Confirm new local password</label><input id="backup-local-confirm" type="password" autocomplete="new-password" required><button class="quiet" '+(busy ? 'disabled' : '')+'>Import encrypted backup</button></form>'}</section>
   <section class="intro auth-story"><div class="eyebrow">A LITTLE MORE OWNERSHIP</div><h2>Your wallet.<br><span>Your way.</span></h2><p>A calm place for your digital assets.<br>Built around one simple idea: you hold the keys.</p><div class="auth-art" aria-hidden="true"><div class="auth-orbit orbit-one"></div><div class="auth-orbit orbit-two"></div><div class="auth-vault"><div class="auth-vault-brand">&#9672; forma</div><span>SELF-CUSTODY</span><div class="auth-key">&#9671;</div><div class="auth-vault-bottom"><span>YOUR KEYS</span><span>YOUR CONTROL</span></div></div><div class="auth-art-tag"><i class="dot"></i> On your device</div></div><div class="auth-promises"><div><b>01</b><strong>Created by you</strong><p>Keys generated locally.</p></div><div><b>02</b><strong>Protected locally</strong><p>An encrypted local vault.</p></div><div><b>03</b><strong>Recovered by you</strong><p>Your backup. Your access.</p></div></div><p class="auth-story-note">Sepolia testnet prototype. Use fresh test wallets only.</p></section></div>`;
 }
 
 function dashboard() {
   const address = active!.address;
-  return `<div class="wallet-grid" id="wallet-summary"><section class="balance-card"><div class="eyebrow">AVAILABLE BALANCE <button id="amount-visibility" class="amount-visibility" aria-pressed="${amountsHidden}">${amountsHidden ? 'Show balance' : 'Hide balance'}</button></div><div class="balance"><span id="balance-value">${amountsHidden ? '&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;' : escape(balance)}</span> <small>ETH</small></div><p>Sepolia ETH · Test tokens have no monetary value</p><div class="balance-actions"><button id="send-focus" class="primary">↗ Send</button><button id="receive-focus" class="quiet">↙ Receive</button><button id="refresh" class="text-button">↻ Refresh</button></div><div class="address-bar"><span>WALLET ADDRESS</span><code>${short(address)}</code><button id="copy" aria-label="Copy wallet address">⧉</button></div></section>
+  return `<section id="network-accounts" class="card"><h2>Your wallet accounts</h2><p>One unlock, one recovery phrase and one encrypted backup for phrase-backed wallets. Each network has its own receiving address.</p><div class="account-network-grid"><button type="button" class="quiet" data-account-network="eth">Ξ Ethereum Sepolia</button><button type="button" class="quiet" data-account-network="btc">₿ Bitcoin Testnet3</button><button type="button" class="quiet" data-account-network="sol">◎ Solana Devnet</button></div></section><div class="wallet-grid" id="wallet-summary"><section class="balance-card"><div class="eyebrow">AVAILABLE BALANCE <button id="amount-visibility" class="amount-visibility" aria-pressed="${amountsHidden}">${amountsHidden ? 'Show balance' : 'Hide balance'}</button></div><div class="balance"><span id="balance-value">${amountsHidden ? '&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;' : escape(balance)}</span> <small>ETH</small></div><p>Sepolia ETH · Test tokens have no monetary value</p><div class="balance-actions"><button id="send-focus" class="primary">↗ Send</button><button id="receive-focus" class="quiet">↙ Receive</button><button id="refresh" class="text-button">↻ Refresh</button></div><div class="address-bar"><span>WALLET ADDRESS</span><code>${short(address)}</code><button id="copy" aria-label="Copy wallet address">⧉</button></div></section>
   <section class="card security"><div class="eyebrow">WALLET HEALTH <span class="dot"></span></div><h2>Keep ownership.<br>Keep a backup.</h2><p>Your encrypted backup and password recover this wallet if this browser’s data is lost.</p><p role="status">${escape(backupGuidance(backupStage(localStorage, active!.address, localStorage.getItem(VAULT_KEY) || '')))}</p><button id="backup" class="quiet">↓ Download encrypted backup</button><button id="backup-verify" class="quiet">Verify a saved backup</button><small>Status is a local reminder, not a guarantee of recovery. Auto-locks after 5 minutes idle or when hidden.</small></section></div>
   <div class="wallet-grid lower" id="transfer-panels"><section class="card" id="send-card"><div class="section-heading"><h2>Send crypto</h2><span>↗</span></div><form id="send-form"><label for="eth-contact">Saved recipient (optional)</label><select id="eth-contact">${contactOptions(active!.address)}</select><label for="recipient">Recipient address</label><input id="recipient" placeholder="0x…" required autocomplete="off"><label for="amount">Amount in Sepolia ETH</label><input id="amount" placeholder="0.00" inputmode="decimal" required autocomplete="off"><p class="hint">Only send on Ethereum Sepolia. Check the full address.</p><button class="primary" ${busy ? 'disabled' : ''}>Review transfer →</button></form><div id="review"></div></section>
   <section class="card" id="receive-card"><div class="section-heading"><h2>Receive crypto</h2><span>↙</span></div><div class="receive"><canvas id="qr"></canvas><strong>Ethereum Sepolia only</strong><code>${address}</code><button id="save-receive-qr" type="button" class="quiet">Save receive QR image</button><p>Share your public address. Never share your password or backup.</p><a href="https://sepolia.etherscan.io/address/${address}" target="_blank" rel="noopener noreferrer">View full activity on explorer ↗</a></div></section></div>
@@ -333,6 +364,20 @@ async function refresh() {
   balance = Number(formatEther(amount)).toLocaleString('en-US', { maximumFractionDigits: 8 });
   await syncHistory();
   if (version === generation) render();
+}
+
+function downloadWalletBackup() {
+  if (!active) return;
+    const vault = localStorage.getItem(VAULT_KEY);
+    if (!vault) return;
+    const url = URL.createObjectURL(new Blob([vault], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'forma-wallet-encrypted-backup.json';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    if (active) recordBackup(localStorage, active.address, vault, 'requested');
+    render();
 }
 
 function bind() {
@@ -555,23 +600,12 @@ function bind() {
       view = 'overview';
       generation++;
       loadHistory();
-      notice = 'Backup restored. This app only operates on Sepolia.';
+      notice = 'Wallet restored. Phrase-backed backups also restore Bitcoin Testnet and Solana Devnet accounts.';
       render();
       try { await refresh(); } catch { notice = 'Restored. Balance unavailable; try Refresh.'; render(); }
     });
   });
-  document.getElementById('backup')?.addEventListener('click', () => {
-    const vault = localStorage.getItem(VAULT_KEY);
-    if (!vault) return;
-    const url = URL.createObjectURL(new Blob([vault], { type: 'application/json' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'forma-sepolia-encrypted-backup.json';
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    if (active) recordBackup(localStorage, active.address, vault, 'requested');
-    render();
-  });
+  document.getElementById('backup')?.addEventListener('click', downloadWalletBackup);
   document.getElementById('copy')?.addEventListener('click', () => { void task(async () => {
     await navigator.clipboard.writeText(active!.address);
     document.getElementById('notice')!.textContent = 'Public address copied.';

@@ -4,9 +4,24 @@ import { validatePassword } from './wallet';
 
 export async function restoreBackup(json: string, backupPassword: string, localPassword: string, confirmation: string) {
   validatePassword(localPassword, confirmation);
+  json = walletBackupJson(json);
   validateKeystore(json);
   const wallet = await Wallet.fromEncryptedJson(json, backupPassword);
   return { wallet, encrypted: await wallet.encrypt(localPassword) };
+}
+
+// Old BTC/SOL backups use the same encrypted HD vault in an identifying wrapper.
+// Unwrapping preserves the seed; importing never invents or replaces addresses.
+export function walletBackupJson(text: string): string {
+  if (text.length > 100000) throw new Error('Keystore file is too large.');
+  let data;
+  try { data = JSON.parse(text); } catch { throw new Error('Choose a valid encrypted keystore JSON file.'); }
+  if (data?.format === 'forma-multichain-testnet-v1') {
+    const vault = JSON.stringify(data.vault);
+    if (typeof vault !== 'string') throw new Error('Malformed encrypted wallet backup.');
+    validateKeystore(vault); return vault;
+  }
+  return text;
 }
 
 export function cachedActivity(value: unknown): Activity[] {

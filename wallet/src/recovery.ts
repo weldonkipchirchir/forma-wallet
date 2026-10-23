@@ -1,8 +1,9 @@
 import { Wallet } from 'ethers';
-import { validateKeystore } from './security';
+import { validateKeystore, walletBackupJson } from './security';
 import { validatePassword } from './wallet';
 
 export async function verifyBackup(json: string, password: string, expected: string) {
+  json = walletBackupJson(json);
   validateKeystore(json);
   const wallet = await Wallet.fromEncryptedJson(json, password);
   if (wallet.address.toLowerCase() !== expected.toLowerCase()) throw new Error('This backup belongs to a different wallet. Your current wallet was not changed.');
