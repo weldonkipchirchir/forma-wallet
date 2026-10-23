@@ -298,7 +298,7 @@ function dashboard() {
   return `<div class="wallet-grid" id="wallet-summary"><section class="balance-card"><div class="eyebrow">AVAILABLE BALANCE <button id="amount-visibility" class="amount-visibility" aria-pressed="${amountsHidden}">${amountsHidden ? 'Show balance' : 'Hide balance'}</button></div><div class="balance"><span id="balance-value">${amountsHidden ? '&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;' : escape(balance)}</span> <small>ETH</small></div><p>Sepolia ETH · Test tokens have no monetary value</p><div class="balance-actions"><button id="send-focus" class="primary">↗ Send</button><button id="receive-focus" class="quiet">↙ Receive</button><button id="refresh" class="text-button">↻ Refresh</button></div><div class="address-bar"><span>WALLET ADDRESS</span><code>${short(address)}</code><button id="copy" aria-label="Copy wallet address">⧉</button></div></section>
   <section class="card security"><div class="eyebrow">WALLET HEALTH <span class="dot"></span></div><h2>Keep ownership.<br>Keep a backup.</h2><p>Your encrypted backup and password recover this wallet if this browser’s data is lost.</p><p role="status">${escape(backupGuidance(backupStage(localStorage, active!.address, localStorage.getItem(VAULT_KEY) || '')))}</p><button id="backup" class="quiet">↓ Download encrypted backup</button><button id="backup-verify" class="quiet">Verify a saved backup</button><small>Status is a local reminder, not a guarantee of recovery. Auto-locks after 5 minutes idle or when hidden.</small></section></div>
   <div class="wallet-grid lower" id="transfer-panels"><section class="card" id="send-card"><div class="section-heading"><h2>Send crypto</h2><span>↗</span></div><form id="send-form"><label for="eth-contact">Saved recipient (optional)</label><select id="eth-contact">${contactOptions(active!.address)}</select><label for="recipient">Recipient address</label><input id="recipient" placeholder="0x…" required autocomplete="off"><label for="amount">Amount in Sepolia ETH</label><input id="amount" placeholder="0.00" inputmode="decimal" required autocomplete="off"><p class="hint">Only send on Ethereum Sepolia. Check the full address.</p><button class="primary" ${busy ? 'disabled' : ''}>Review transfer →</button></form><div id="review"></div></section>
-  <section class="card" id="receive-card"><div class="section-heading"><h2>Receive crypto</h2><span>↙</span></div><div class="receive"><canvas id="qr"></canvas><strong>Ethereum Sepolia only</strong><code>${address}</code><p>Share your public address. Never share your password or backup.</p><a href="https://sepolia.etherscan.io/address/${address}" target="_blank" rel="noopener noreferrer">View full activity on explorer ↗</a></div></section></div>
+  <section class="card" id="receive-card"><div class="section-heading"><h2>Receive crypto</h2><span>↙</span></div><div class="receive"><canvas id="qr"></canvas><strong>Ethereum Sepolia only</strong><code>${address}</code><button id="save-receive-qr" type="button" class="quiet">Save receive QR image</button><p>Share your public address. Never share your password or backup.</p><a href="https://sepolia.etherscan.io/address/${address}" target="_blank" rel="noopener noreferrer">View full activity on explorer ↗</a></div></section></div>
   <section class="card activity" id="activity-panel"><div class="section-heading"><h2>Transaction history</h2><button id="history-refresh" class="quiet">Refresh activity</button></div><div class="activity-toolbar"><div class="filter-tabs" aria-label="Filter activity">${['all','received','sent'].map(filter => `<button data-filter="${filter}" class="${activityFilter === filter ? 'is-active' : ''}" aria-pressed="${activityFilter === filter}">${filter[0].toUpperCase()+filter.slice(1)}</button>`).join('')}</div><span class="activity-count">${history.length} indexed records</span></div><p class="hint">${escape(historyNotice)}</p><h3>Locally submitted ETH</h3><p class="hint">Unknown does not mean failed. Refresh activity to check receipts. Do not retry an uncertain transfer automatically.</p><div id="eth-submissions">${nativeSubmissionRows()}</div><label for="activity-search">Search ETH history</label><input id="activity-search" type="search" maxlength="100" autocomplete="off" placeholder="Address or transaction hash" value="${escape(activityQuery)}"><p class="hint">Searches loaded ETH records only. Load older activity to extend results.</p><div id="activity-search-results">${activityRows()}</div>${cursors.some(Boolean) ? '<button id="load-more" class="quiet">Load older activity</button>' : ''}<p><a href="https://eth-sepolia.blockscout.com/address/${address}" target="_blank" rel="noopener noreferrer">View complete activity on explorer</a></p></section>`;
 
 }
@@ -334,6 +334,31 @@ async function refresh() {
 }
 
 function bind() {
+  document.getElementById('save-receive-qr')?.addEventListener('click', () => void task(async () => {
+    if (!active) return;
+    const owner = active.address, version = generation;
+    const qr = document.createElement('canvas');
+    await QRCode.toCanvas(qr, `ethereum:${owner}@${CHAIN_ID}`, { width: 320, margin: 4, errorCorrectionLevel: 'M', color: { dark: '#183d35', light: '#ffffff' } });
+    const image = document.createElement('canvas');
+    image.width = 420; image.height = 500;
+    const ctx = image.getContext('2d');
+    if (!ctx) throw new Error('QR image unavailable. Copy your public address instead.');
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 420, 500);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#183d35'; ctx.font = 'bold 24px sans-serif';
+    ctx.fillText('forma · Receive', 210, 38);
+    ctx.font = 'bold 16px sans-serif'; ctx.fillText('Ethereum Sepolia · TESTNET', 210, 68);
+    ctx.drawImage(qr, 50, 85);
+    ctx.font = '14px monospace'; ctx.fillText(owner.slice(0, 22), 210, 428); ctx.fillText(owner.slice(22), 210, 450);
+    ctx.font = '13px sans-serif'; ctx.fillText('Test assets only · Verify network before sending', 210, 480);
+    const blob = await new Promise<Blob | null>(resolve => image.toBlob(resolve, 'image/png'));
+    if (version !== generation || active?.address !== owner) return;
+    if (!blob) throw new Error('QR image unavailable. Copy your public address instead.');
+    const url = URL.createObjectURL(blob), link = document.createElement('a');
+    link.href = url; link.download = `forma-sepolia-receive-${owner.slice(-6)}.png`; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    notice = 'QR image download requested. It contains your public address only. Share it for Sepolia test assets.';
+    const el = document.getElementById('notice'); if (el) el.textContent = notice;
+  }));
   document.getElementById('activity-search')?.addEventListener('input', event => {
     activityQuery = (event.target as HTMLInputElement).value.slice(0, 100);
     const rows = document.getElementById('activity-search-results');
