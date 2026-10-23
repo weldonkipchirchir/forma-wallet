@@ -1,0 +1,73 @@
+# Forma wallet security and feature review
+
+Reviewed 22 October 2026. Scope: the standalone Sepolia browser wallet in this directory, its source and installed crypto implementation, local signing/import boundaries, external data handling, dependency advisories and selected live browser flows. This is an engineering assessment, not an independent audit or certification. Recommendations below are our assessment; vendor documentation describes those vendors' products, not guarantees for Forma.
+
+## Assessment
+
+Keep this a testnet prototype. Local encryption, strict transfer reviews and a smaller feature surface are useful protections, but unlocked keys share the browser's JavaScript environment with the application. A compromised build, privileged extension or operating system can bypass application checks. Adding more chains, swaps or fiat payment methods does not address that architectural risk.
+
+## Research translated into engineering decisions
+
+| Primary source | Relevant finding or pattern | Application to Forma |
+| --- | --- | --- |
+| [Trust Wallet security overview, updated January 2026](https://trustwallet.com/blog/security/complete-overview-of-trust-wallet-security) | Documents app lock, signing authentication, risk warnings and hardware support. | Forma has idle/visibility lock and explicit review acknowledgement. It lacks hardware signing, per-send reauthentication and a threat intelligence scanner. Do not label its local warnings a security scanner. |
+| [Cure53 Trust Wallet browser audit, April 2023](https://trustwallet.com/assets/files/cure53_tw_browser_extension_04.2023.pdf) | Describes origin separation, wallet switching races, input validation, CSP and analytics exposure; reports historical findings and their fix status. | Check state generation before broadcast, treat indexer/storage data as untrusted, keep analytics out, and require production hosting headers. This older audit does not establish current Trust Wallet safety or audit Forma. |
+| [MetaMask simulation documentation](https://support.metamask.io/manage-crypto/transactions/simulations/) | Offchain simulation can be deceived; some smart-account protections enforce outcomes onchain. | Forma's ERC-20 eth_call is advisory. It neither enforces a minimum received amount nor guarantees the mined outcome. Reverting/false-return simulations block sending; a successful call is not a token endorsement. |
+| [MetaMask Demonic disclosure](https://metamask.io/en-GB/news/metamask-security-monthly-june-2022) and [Phantom's technical disclosure](https://phantom.com/learn/blog/keeping-phantom-safe-from-the-demonic-critical-vulnerability) | Recovery material can persist outside the intended encrypted vault through browser/session/memory behavior. | Recovery entry is now masked and cleared before processing, including validation failure. Reveal remains password gated and time limited. No forensic session-restore, disk, swap or memory analysis was performed; this change is not a claim that all Demonic-style risks are eliminated. |
+| [Ledger transaction UX guidance](https://developers.ledger.com/docs/device-app/integration/design-guidelines/transactions) | Users need understandable intent, destination, amount and fees before signing. | Preserve full addresses and maximum fees in reviews. Decode signed bytes and compare them to the reviewed request before broadcast. A webpage review does not provide a hardware device's independent trusted display. |
+| [Ledger Donjon's Trust Wallet WASM investigation](https://www.ledger.com/blog/funds-of-every-wallet-created-with-the-trust-wallet-browser-extension-could-have-been-stolen) | Historical entropy reduction made seed generation vulnerable despite standard derivation algorithms. | Checked installed ethers browser entropy code: it uses crypto.getRandomValues and fails when unavailable. Forma uses Wallet.createRandom, with no custom PRNG or Math.random for keys. This is a code-path review, not a statistical proof or a browser-platform audit. |
+| [Guan and Li, CCS 2024: Characterizing Ethereum Address Poisoning Attack](https://www.sigsac.org/ccs/CCS2024/assets/pfaubmkaccs2024submissions/new/p986-guan.pdf) | Shortened addresses and crafted token events can poison history and induce incorrect transfers. | Keep full-address review, reject zero destinations, warn for new/self recipients, block the existing prefix/suffix lookalike heuristic, and explicitly state that a history match is not a verified contact. Token event from-fields alone do not prove that the account authorized a transaction. |
+| [Muzammil et al., EuroSec 2026: No Wallet for Old Tricks](https://www.securitee.org/files/ensdefenses_eurosec2026.pdf) | Context-aware client checks complement public blocklists for poisoning and name-related attacks. | Use local warnings as one layer. The current first-four/last-four comparison can miss other similarities and incomplete history. ENS is not implemented; adding name resolution would introduce additional expiry, homograph and ownership checks. |
+| [Torres et al., USENIX Security 2023: Is Your Wallet Snitching On You?](https://www.usenix.org/conference/usenixsecurity23/presentation/torres) | Wallet and dApp integrations can expose addresses and enable tracking. | RPC and Blockscout receive queried addresses and network metadata. Binance/Coinbase market requests use symbols/times, not wallet addresses, but providers still see client connections. Visual balance hiding is not network privacy. |
+| [Erinle et al., wallet security SoK, revised 2025](https://arxiv.org/abs/2307.12874) | The abstract's taxonomy separates wallet design decisions and threats across layers. | Assess entropy, storage, signing, UI, recovery, dependencies and deployment separately. Read the abstract/metadata; this review does not claim a full reproduction of the paper's incident analysis. |
+
+## Verified findings and changes
+
+Severity labels here are engineering priorities, not independently assigned CVSS ratings.
+
+1. **Medium: backup import reused the uploaded backup password for local encryption. Fixed.** A legacy backup could bypass the app's 12-character local-password policy. Both onboarding and recovery import forms now require a new confirmed local password. The original password only decrypts the backup. Shared restoreBackup validates, decrypts and re-encrypts before the UI persists anything. A disposable-key test restores a weak-password backup, decrypts the new vault with the new password and proves the old password fails. This does not change existing saved vault passwords or make 12 predictable characters strong.
+2. **Medium: recovery entry used a plaintext textarea. Exposure reduced.** It now uses a masked password input with explicit show/hide, autocomplete off and no spellcheck. Entry and optional BIP-39 passphrase are cleared before validation/derivation. Existing recovery reveal still requires the wallet password and clears after 30 seconds. Secret strings remain in JavaScript memory; reveal, browser extensions, crash dumps and user-controlled password-manager behavior remain concerns.
+3. **Defense in depth: no independent check of serialized signed intent. Fixed for supported transfers.** Both ETH and ERC-20 paths decode signed bytes before broadcast and bind signer, Sepolia chain ID, destination, native value, exact calldata, gas limit, maximum fee and priority fee to the reviewed request. Only type-2 transfers with empty access/authorization lists pass. Existing fresh-review and lock-generation checks remain. RPC supplies the nonce; nonce manipulation and fee honesty are separate residual dependencies. Same-origin malicious code can remove this guard, so it does not create signer isolation.
+4. **Low: keystore structure validation was incomplete before expensive decryption. Fixed.** Require version 3, expected cipher/ciphertext/IV/MAC shape, bounded hexadecimal salt, accepted PBKDF2 PRF and existing bounded scrypt/PBKDF2 parameters. ethers still verifies password/MAC during decryption. Unsupported backups are rejected without replacing the active vault; they may need their original wallet software.
+5. **Low: unknown indexer statuses could display as confirmed, and internal IDs were insufficiently typed. Fixed.** Only explicit success maps to confirmed. Unknown status remains pending. Reject malformed internal indexes, non-string timestamps and oversized/non-string amounts. External indexer success is still not independent chain settlement verification.
+6. **UX security: history familiarity could be mistaken for contact verification. Improved.** Exact history matches now say that history may contain forged events and require direct full-address verification. No authenticated address book was added. Lookalike checks remain heuristic and can produce false positives or miss attacks.
+
+## Verification evidence
+
+- `npm test`: **44 tests pass across 8 files**. Tests cover native/token validation, exact integer amounts, cached/indexed activity, token metadata and history, market/portfolio calculations, review expiry, poisoning heuristics, wallet derivation/recovery, hostile keystore shapes, new-password backup restoration and serialized transaction substitution.
+- New signing tests use a public disposable fixture and no network: accept an exact ETH/token request; reject destination, value, calldata, mainnet chain, gas-limit, max-fee, priority-fee, signer and access-list substitutions. They validate the guard, not every possible malicious RPC or browser execution path.
+- `npm run build`: TypeScript and Vite production build pass. Approximately 588 KB JavaScript before gzip; the existing >500 KB chunk warning remains a performance follow-up.
+- `npm audit --json`: **0 known advisories** at review time, 127 dependency entries reported. This is registry advisory coverage, not proof of absence of malicious packages or undisclosed vulnerabilities.
+- Source checks traced entropy to installed ethers browser crypto.getRandomValues; reviewed HTML sinks/escaping, network destinations, storage writes, clipboard use and configured CSP. No user vault plaintext, password or recovery material was printed.
+- Live browser evidence is recorded below separately from unit tests. No transaction was signed/broadcast through the user's wallet, and no recovery phrase was revealed. Backup cryptographic tests used only disposable local test keys.
+
+## Remaining work, in priority order
+
+| Priority | Feature/security work | Completion evidence needed |
+| --- | --- | --- |
+| Before real funds | Hardware/external isolated signer and watch-only accounts | Test device address confirmation, rejection, disconnect/reconnect, network binding and signer/UI mismatch. Never import hardware seeds into this webpage. |
+| Before real funds | Independent audit and controlled release/hosting | Reviewed threat model; production HTTPS/CSP headers; dependency provenance and reproducible build process; explicit vulnerability reporting and incident response. Dev-server headers do not configure a production CDN. |
+| High | Verified contacts plus history provenance | User-verified full addresses; do not auto-promote token events into trusted recipients; test forged/zero/dust events and near matches. |
+| High | Recovery verification and password change | Disposable backup restore/address matching; password-change rollback; all saved wallets remain recoverable; optional explicit signing reauthentication. No claim that a file download alone proves a usable backup. |
+| High | Pending token journal and receipt reconciliation | Durable local pending state, interrupted/ambiguous broadcast handling, replacement/cancellation and dropped/failed receipts. Current token submission notice/indexer refresh is less complete than native activity. Never retry automatically after ambiguous submission. |
+| High | Broader browser and network adversarial tests | Multi-tab lock/import races, idle lock, hidden-page interruption, RPC timeout/reorg/inconsistent responses, hostile contract metadata and funded disposable-token send/receipt checks. Existing generation guards/unit tests do not establish full coverage. |
+| Medium | Privacy controls | Explain RPC/indexer disclosure before queries; optional market/history fetches and cache clearing; no telemetry that captures forms or secrets. |
+| Medium | Better portfolio accounting | ERC-20 prices and reliable historical coverage, fee-aware basis, transfers versus investment gains, clear missing-price/reorg behavior. Current Sepolia USD value is hypothetical, ETH-focused and not tax accounting. |
+
+M-Pesa, cards, swaps, staking, dApp connections, arbitrary message signing and mainnet remain separate projects with additional trust boundaries. ERC-20 transfer support does not mean Bitcoin/Solana support or that every token contract is safe. Implementing all popular-wallet features at once would make this review's scope obsolete.
+
+
+## Live browser results from this review
+
+On the existing localhost:5175 wallet, without exporting secrets or changing its vault:
+
+- Existing wallet unlocked successfully using browser-managed credentials; faucet receipt remained visible as 0.05 test ETH.
+- Zero-address review showed "Do not send to the zero address."
+- A 0.001 test-ETH review showed the full destination, amount, maximum fee, first-recipient warning, Sepolia network, two-minute expiry and unchecked acknowledgement. Editing the amount to 0.002 removed the review. Confirmation was not clicked, so no user-wallet transaction was signed or broadcast.
+- Recovery showed a masked phrase field with its own show/hide control and separate new local password/confirmation for JSON imports. Actual user-phrase import and reveal were deliberately not exercised; disposable-key automated tests cover backup re-encryption.
+- Switched the recovery page between Light and Dark and inspected both screenshots. Restored the original Dark preference. This is a visual spot check, not comprehensive accessibility or contrast certification.
+- Explicit Lock removed sidebar navigation and the My wallet breadcrumb. Wallet was left locked.
+- The browser autofilled existing-password fields. This illustrates that password-manager behavior is outside the app's control; a re-entry prompt alone should not be marketed as an independent authentication factor.
+- Actual local HTTP responses were checked for CSP, nosniff, no-referrer and restrictive Permissions-Policy. Production deployment remains untested.
+
+Screenshots: `C:/Users/weldo/.codex/visualizations/2026/10/22/01a1649f-bb8f-7a81-9a99-117cd170cb37/wallet-security-light.png` and `wallet-security-dark.png` in the same folder. These show masked fields, not recovery words.

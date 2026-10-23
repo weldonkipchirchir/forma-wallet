@@ -1,0 +1,12 @@
+{$WALLET_DOMAIN} {
+  root * /srv
+  import /etc/caddy/security.headers
+  encode zstd gzip
+  @private path /.env* /.git/* /src/* /node_modules/* /package*.json /*.map /assets/*.map
+  respond @private 404
+  @assets path /assets/*
+  header @assets Cache-Control "public, max-age=31536000, immutable"
+  @documents not path /assets/*
+  header @documents Cache-Control "no-store"
+  file_server
+}

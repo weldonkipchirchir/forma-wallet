@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import { securityHeaders, DEFAULT_RPC } from '../security-policy.mjs';
+const base = new URL(process.argv[2] || 'https://invalid.invalid');
+if (base.username || base.password || base.search || base.hash) throw new Error('Provide a plain host URL without credentials.');
+if (base.protocol !== 'https:' && !(base.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(base.hostname))) throw new Error('Only HTTPS or loopback HTTP may be checked.');
+const fetchPath = path => fetch(new URL(path, base), { redirect: 'error', signal: AbortSignal.timeout(15000) });
+const page = await fetchPath('/'); assert.equal(page.status, 200, 'Root page must load');
+for (const [key, value] of Object.entries(securityHeaders(new URL(DEFAULT_RPC), true))) assert.equal(page.headers.get(key), value, `Missing or changed ${key}`);
+assert.equal(page.headers.get('cache-control'), 'no-store');
+const html = await page.text();
+const asset = html.match(/src="(\/assets\/[^" ]+\.js)"/)?.[1]; assert.ok(asset, 'Built JS entry must be present');
+const js = await fetchPath(asset); assert.equal(js.status, 200); assert.match(js.headers.get('cache-control') || '', /immutable/);
+for (const path of ['/.env', '/src/main.ts', '/assets/missing.js', '/assets/missing.js.map']) assert.equal((await fetchPath(path)).status, 404, 'Private/missing resources must remain 404');
+console.log('Hosting smoke checks passed: headers, entry asset, cache policy and private/missing routes.');
