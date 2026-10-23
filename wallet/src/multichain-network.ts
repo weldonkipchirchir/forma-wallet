@@ -22,7 +22,7 @@ export async function assertTestnet(chain: Chain) {
   const genesis = chain === 'btc' ? await request(`${BTC_API}/block-height/0`) : await solRpc('getGenesisHash');
   if (genesis !== (chain === 'btc' ? BTC_GENESIS : SOL_GENESIS)) throw new Error('Wrong network. Signing is blocked.');
 }
-export async function readMultiBalance(chain: Chain, keys: MultiKeys) {
+export async function readMultiBalance(chain: Chain, keys: Pick<MultiKeys, 'solAddress' | 'btcAddress'>) {
   await assertTestnet(chain);
   if (chain === 'sol') {
     const result = await solRpc('getBalance', [keys.solAddress, { commitment: 'confirmed' }]);
@@ -84,3 +84,17 @@ export async function submissionStatus(chain: Chain, id: string): Promise<'unkno
 export const multiExplorer = (chain: Chain, kind: 'address' | 'tx', id: string) => chain === 'btc'
   ? `https://blockstream.info/testnet/${kind}/${encodeURIComponent(id)}`
   : `https://explorer.solana.com/${kind}/${encodeURIComponent(id)}?cluster=devnet`;
+export type NetworkActivity = { id: string; status: 'pending' | 'confirmed' | 'failed'; timestamp: number | null };
+export async function readMultiActivity(chain: Chain, address: string): Promise<NetworkActivity[]> {
+  await assertTestnet(chain);
+  const rows = chain === 'btc'
+    ? JSON.parse(await request(`${BTC_API}/address/${encodeURIComponent(address)}/txs`))
+    : await solRpc('getSignaturesForAddress', [address, { limit: 20, commitment: 'confirmed' }]);
+  if (!Array.isArray(rows)) throw new Error('Invalid activity response.');
+  return rows.slice(0, 20).map(row => {
+    const id = chain === 'btc' ? row?.txid : row?.signature;
+    if (typeof id !== 'string' || !(chain === 'btc' ? /^[a-f0-9]{64}$/ : /^[1-9A-HJ-NP-Za-km-z]{80,90}$/).test(id)) throw new Error('Invalid activity transaction ID.');
+    const time = chain === 'btc' ? row.status?.block_time : row.blockTime;
+    return { id, status: chain === 'btc' ? row.status?.confirmed === true ? 'confirmed' : 'pending' : row.err ? 'failed' : 'confirmed', timestamp: typeof time === 'number' && Number.isSafeInteger(time) && time > 0 ? time * 1000 : null };
+  });
+}

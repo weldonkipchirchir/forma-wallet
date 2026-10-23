@@ -1,18 +1,21 @@
+import { networkAsset, type NetworkId } from './network-context';
 import { createChart, CandlestickSeries, HistogramSeries, ColorType, type UTCTimestamp } from 'lightweight-charts';
 import { ranges, marketRequest, parseCandles, percentageChange, type Candle } from './market-data';
 
-export function marketMarkup() {
-  return `<section id="market-panel" class="card market-panel"><div class="section-heading"><div><div class="eyebrow">SPOT MARKET · ETH / USDT</div><h2>Ethereum market</h2></div><span id="market-state" class="pill">Connecting</span></div>
+export function marketMarkup(network: NetworkId = 'eth') {
+  const asset = networkAsset(network);
+  return `<section id="market-panel" class="card market-panel"><div class="section-heading"><div><div class="eyebrow">SPOT MARKET · ${asset.symbol} / USDT</div><h2>${asset.name} market</h2></div><span id="market-state" class="pill">Connecting</span></div>
   <div class="market-price-row"><strong id="market-price">— <small>USDT</small></strong><span id="market-day-change">24h change —</span></div>
-  <p class="market-disclaimer">Real ETH market data, separate from your Sepolia test wallet. Test ETH has no monetary value. ALL starts at Binance’s earliest ETH/USDT candle, not Ethereum’s network launch.</p>
+  <p class="market-disclaimer">Real ${asset.symbol} market data, separate from your ${asset.network} test wallet. Test assets have no monetary value. ALL starts at Binance’s earliest ${asset.symbol}/USDT candle, not the network’s launch.</p>
   <div class="market-changes">${ranges.map(r => `<div><span>${r.label}</span><strong data-market-change="${r.label}">—</strong></div>`).join('')}</div>
   <div class="market-controls"><div class="filter-tabs" aria-label="Chart history range">${ranges.map(r => `<button data-market-range="${r.label}" aria-pressed="${r.label === '24H'}" class="${r.label === '24H' ? 'is-active' : ''}">${r.label}</button>`).join('')}</div><button id="market-fit" class="quiet">Reset chart</button></div>
-  <div id="market-ohlc" class="market-ohlc" aria-live="off">Loading candles…</div><div id="market-chart" role="img" aria-label="Interactive Ethereum USDT candlestick chart. Scroll to zoom, drag to pan, hover for OHLC values."></div>
+  <div id="market-ohlc" class="market-ohlc" aria-live="off">Loading candles…</div><div id="market-chart" role="img" aria-label="Interactive ${asset.name} USDT candlestick chart. Scroll to zoom, drag to pan, hover for OHLC values."></div>
   <div class="market-chart-meta"><span id="market-interval">15-minute candles · UTC</span><span>Green: close ≥ open · Red: close &lt; open</span></div>
-  <p id="market-message" class="hint" role="status">Loading public market data…</p><div class="market-source"><span>Source: Binance spot ETHUSDT · Price refresh: 15s · Candles: 30s</span><a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">Charts by TradingView ↗</a></div></section>`;
+  <p id="market-message" class="hint" role="status">Loading public market data…</p><div class="market-source"><span>Source: Binance spot ${asset.pair} · Price refresh: 15s · Candles: 30s</span><a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">Charts by TradingView ↗</a></div></section>`;
 }
 
-export function mountMarket(host: HTMLElement) {
+export function mountMarket(host: HTMLElement, network: NetworkId = 'eth') {
+  const asset = networkAsset(network);
   const abort = new AbortController();
   const $ = (id: string) => host.querySelector<HTMLElement>(`#${id}`)!;
   let selected: typeof ranges[number] = ranges[1];
@@ -40,7 +43,7 @@ export function mountMarket(host: HTMLElement) {
   function change(el: HTMLElement, n: number) { el.textContent = `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`; el.classList.toggle('market-up', n >= 0); el.classList.toggle('market-down', n < 0); }
   function showOHLC(c?: Candle) {
     if (!c) return;
-    $('market-ohlc').textContent = `${new Date(c.time * 1000).toLocaleString('en-GB', { timeZone: 'UTC' })} UTC · O ${money(c.open)}  H ${money(c.high)}  L ${money(c.low)}  C ${money(c.close)} · Vol ${c.volume.toLocaleString('en-US', { maximumFractionDigits: 2 })} ETH`;
+    $('market-ohlc').textContent = `${new Date(c.time * 1000).toLocaleString('en-GB', { timeZone: 'UTC' })} UTC · O ${money(c.open)}  H ${money(c.high)}  L ${money(c.low)}  C ${money(c.close)} · Vol ${c.volume.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${asset.symbol}`;
   }
   chart.subscribeCrosshairMove(event => { showOHLC(candles.find(c => c.time === event.time) ?? candles.at(-1)); });
   function updateChanges() {
@@ -58,10 +61,10 @@ export function mountMarket(host: HTMLElement) {
     if (priceBusy || disposed || document.hidden) return;
     priceBusy = true;
     try {
-      const data = await marketRequest('ticker/24hr?symbol=ETHUSDT', abort.signal);
+      const data = await marketRequest(`ticker/24hr?symbol=${asset.pair}`, abort.signal);
       if (disposed) return;
       const price = Number(data.lastPrice), day = Number(data.priceChangePercent);
-      if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(day)) throw new Error('Invalid market price response.');
+      if (data.symbol !== asset.pair || !Number.isFinite(price) || price <= 0 || !Number.isFinite(day)) throw new Error('Invalid market price response.');
       lastPrice = price; priceAt = Date.now();
       $('market-price').replaceChildren(document.createTextNode(`${money(price)} `));
       const unit = document.createElement('small'); unit.textContent = 'USDT'; $('market-price').append(unit);
@@ -76,7 +79,7 @@ export function mountMarket(host: HTMLElement) {
     const now = Date.now();
     const results = await Promise.allSettled(ranges.map(async r => {
       const time = Math.floor((now - r.hours * 3600000) / 60000) * 60000;
-      const query = r.label === 'ALL' ? 'klines?symbol=ETHUSDT&interval=1M&startTime=0&limit=1' : `klines?symbol=ETHUSDT&interval=1m&startTime=${time}&endTime=${time + 59999}&limit=1`;
+      const query = r.label === 'ALL' ? `klines?symbol=${asset.pair}&interval=1M&startTime=0&limit=1` : `klines?symbol=${asset.pair}&interval=1m&startTime=${time}&endTime=${time + 59999}&limit=1`;
       const rows = parseCandles(await marketRequest(query, abort.signal));
       if (!rows[0]) throw new Error('Comparison unavailable.');
       return [r.label, rows[0].open] as const;
@@ -95,14 +98,14 @@ export function mountMarket(host: HTMLElement) {
     const range = selected;
     if (fit) $('market-ohlc').textContent = 'Loading selected range…';
     try {
-      const rows = parseCandles(await marketRequest(`klines?symbol=ETHUSDT&interval=${range.interval}&limit=${range.limit}${range.label === 'ALL' ? '&startTime=0' : ''}`, abort.signal));
+      const rows = parseCandles(await marketRequest(`klines?symbol=${asset.pair}&interval=${range.interval}&limit=${range.limit}${range.label === 'ALL' ? '&startTime=0' : ''}`, abort.signal));
       if (disposed || revision !== requestId) return;
       if (!rows.length) throw new Error('No candles returned.');
       candles = rows;
       series.setData(rows.map(c => ({ ...c, time: c.time as UTCTimestamp })));
       volume.setData(rows.map(c => ({ time: c.time as UTCTimestamp, value: c.volume, color: c.close >= c.open ? '#39986b55' : '#d36c6555' })));
       if (fit) chart.timeScale().fitContent();
-      $('market-interval').textContent = range.label === 'ALL' ? `Monthly candles · Since ${new Date(rows[0].time * 1000).toLocaleDateString('en-GB', { timeZone: 'UTC' })} · Binance ETH/USDT listing · UTC` : `${range.interval} candles · ${range.label} view · UTC`;
+      $('market-interval').textContent = range.label === 'ALL' ? `Monthly candles · Since ${new Date(rows[0].time * 1000).toLocaleDateString('en-GB', { timeZone: 'UTC' })} · Binance ${asset.symbol}/USDT listing · UTC` : `${range.interval} candles · ${range.label} view · UTC`;
       showOHLC(rows.at(-1));
     } catch (e) {
       if (!disposed && revision === requestId) { if (fit) { series.setData([]); volume.setData([]); candles = []; } $('market-ohlc').textContent = 'Candles unavailable. Try another range or retry shortly.'; status(e instanceof Error ? e.message : 'Chart unavailable.'); }

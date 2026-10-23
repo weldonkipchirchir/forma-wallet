@@ -24,7 +24,12 @@ export function commitPassword(storage: Pick<Storage, 'getItem' | 'setItem' | 'r
   let saved: Record<string, string>;
   try { const value = JSON.parse(oldArchive ?? '{}'); if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(); saved = value; }
   catch { throw new Error('Saved wallet list is damaged. Download a backup before continuing.'); }
-  saved[address.toLowerCase().replace(/^0x/, '')] = nextJson;
+  const identity = address.toLowerCase().replace(/^0x/, '');
+  for (const [key, json] of Object.entries(saved)) {
+    try { if (typeof json === 'string' && JSON.parse(json).address?.toLowerCase().replace(/^0x/, '') === identity) saved[key] = nextJson; }
+    catch { /* Preserve unrelated damaged entries for recovery. */ }
+  }
+  saved[identity] = nextJson;
   storage.setItem(archiveKey, JSON.stringify(saved));
   try { storage.setItem(vaultKey, nextJson); }
   catch (error) { if (oldArchive === null) storage.removeItem(archiveKey); else storage.setItem(archiveKey, oldArchive); throw error; }

@@ -2,7 +2,7 @@
 
 Standalone browser wallet. The existing event app is unchanged.
 
-One primary wallet unlocks Ethereum Sepolia, Bitcoin Testnet3 and Solana Devnet accounts from the same recovery phrase and encrypted backup. Use the Network selector or Overview account buttons. Older separate BTC/SOL wallets remain accessible under Recovery & import. See [MULTICHAIN.md](MULTICHAIN.md) for recovery, migration, supported paths and limitations. The USD portfolio estimate remains Ethereum-specific.
+One primary wallet unlocks Ethereum Sepolia, Bitcoin Testnet3 and Solana Devnet accounts from the same recovery phrase and encrypted backup. The Network selector keeps Overview, holdings, transfers, Activity and Market on the chosen network across navigation and reloads. Older separate BTC/SOL vaults are preserved in normal Saved wallets; use the standard unlock, encrypted-backup or recovery-phrase restore flow. See [MULTICHAIN.md](MULTICHAIN.md) for recovery, migration, supported paths and limitations. The USD portfolio estimate remains Ethereum-specific.
 
 ## Run
 
@@ -32,7 +32,7 @@ When importing with a non-empty BIP-39 passphrase, the standard ethers JSON back
 
 ## Market view
 
-Market shows real Binance spot ETH/USDT prices, independently of the Sepolia wallet. Test ETH is never assigned a fiat/USDT balance. Public market requests contain only the market symbol and timestamps; no wallet address or secret is sent to Binance.
+Market shows real Binance spot ETH/USDT, BTC/USDT or SOL/USDT prices for the selected network. Test coins are never assigned monetary value. Public market requests contain only the market symbol and timestamps; no wallet address or secret is sent to Binance.
 
 - Last traded ETH/USDT price and exchange-reported rolling 24-hour change refresh every 15 seconds.
 - 1H, 24H, 7D, 30D, 90D, 180D and 1Y comparisons use the open of the one-minute candle nearest the rounded-down lookback timestamp and the current last price. These approximate lookback changes refresh their baselines every minute; the exchange's 24-hour calculation can differ slightly.
@@ -161,3 +161,7 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for the reviewed Caddy/Docker configuration, 
 ## GitHub Actions and Vercel
 
 Vercel static hosting is configured in vercel.json with test/build/audit gates and production headers. Follow [VERCEL.md](VERCEL.md): the current repository keeps wallet/ as the Vercel Root Directory, Node 24, and Other framework preset. GitHub Actions exposes Tests, build and security plus Caddy container and hosting checks under Wallet checks. Local validation: 94 tests and production release build pass. No push or deployment has been made.
+
+### Solana SPL tokens
+
+Select Solana Devnet, then Tokens. Add a classic SPL mint address, refresh the associated-account balance, and review transfers to a wallet with an existing associated token account. Mint identity, decimals, account ownership and state are validated. Fees remain in devSOL. Token-2022, recipient account creation and BTC/SOL Ledger signing are not implemented. See MULTICHAIN.md for transfer safeguards and remaining funded tests.

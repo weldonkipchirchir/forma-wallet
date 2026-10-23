@@ -1,3 +1,5 @@
+import { networkAsset, networkHeading, usesNativeWorkspace, supportsPage, savedNetwork, type NetworkId } from './network-context';
+import { preserveImportedWallet, savedWalletLabel } from './wallet-migration';
 import { ledgerMarkup, mountLedger } from './ledger';
 import { walletErrorMessage } from './error-message';
 import { filterLoadedActivity } from './activity-filter';
@@ -33,7 +35,7 @@ let exactBalance: bigint | null = null;
 let notice = '';
 let history: Activity[] = [];
 let view = 'overview';
-let primaryChain: 'btc' | 'sol' = 'btc';
+let selectedNetwork: NetworkId = savedNetwork(localStorage.getItem('forma.network.v1'));
 let disposeMarket: (() => void) | undefined;
 let disposePortfolio: (() => void) | undefined;
 let disposeTokens: (() => void) | undefined;
@@ -81,8 +83,6 @@ function updateAmountVisibility() {
   if (portfolioToggle) { portfolioToggle.textContent = amountsHidden ? 'Show holdings' : 'Hide holdings'; portfolioToggle.setAttribute('aria-pressed', String(amountsHidden)); }
 }
 const pages: Record<string, { title: string; subtitle: string; icon: string }> = {
-  multi: { title: 'Your wallet, across networks.', subtitle: 'One recovery phrase. Ethereum, Bitcoin Testnet and Solana Devnet.', icon: '₿' },
-  'legacy-multi': { title: 'Older imported BTC & SOL wallet.', subtitle: 'Preserve access to accounts created with a separate recovery phrase.', icon: '₿' },
   tokens: { title: 'More assets. Same wallet.', subtitle: 'Track and transfer ERC-20 tokens on Ethereum Sepolia.', icon: 'T' },
   portfolio: { title: 'Your portfolio, at a glance.', subtitle: 'Holdings and activity for your current wallet.', icon: '◈' },
   overview: { title: 'Your money. Your move.', subtitle: 'A simple home for your digital assets.', icon: '▦' },
@@ -133,7 +133,7 @@ function loadHistory() {
 }
 function persistHistory() { if (active) localStorage.setItem(historyKey(active.address), JSON.stringify(history)); }
 function clearSecrets() { clearTimeout(revealTimer); document.getElementById('phrase-display')?.replaceChildren(); }
-function navigate(next: string) { if (next === 'multi' && !active) next = 'overview'; generation++; clearSecrets(); pending = null; view = next; render(); }
+function navigate(next: string) { if (next === 'multi') next = 'overview'; generation++; clearSecrets(); pending = null; view = next; render(); }
 
 function nativeSubmissions(address: string) {
   try { return parseJournal(JSON.parse(localStorage.getItem(nativeJournalKey(address)) || '[]')); } catch { return []; }
@@ -236,13 +236,26 @@ function render() {
   root.classList.toggle('is-ledger', view === 'ledger');
   const hasVault = !!localStorage.getItem(VAULT_KEY);
   const page = pages[view] || pages.overview;
-  root.innerHTML = `<button id="sidebar-backdrop" aria-label="Close navigation" tabindex="-1"></button><aside id="wallet-sidebar"><a class="brand" href="/">◈ <span>forma</span></a><button id="sidebar-toggle" class="sidebar-toggle" aria-controls="wallet-sidebar" title="Toggle sidebar"></button><div class="workspace">PERSONAL WALLET</div><nav aria-label="Wallet navigation">${[['overview','Overview'],['portfolio','Portfolio'],['tokens','Tokens'],['multi','Bitcoin & Solana'],['transfer','Send & receive'],['market','Market'],['activity','Activity'],['ledger','Ledger'],['watch','Watch-only'],['contacts','Contacts'],['settings','Recovery & import']].map(([id,label]) => `<button data-view="${id}" title="${label}" aria-label="${label}" ${!active && id !== 'overview' ? 'disabled' : ''} class="${view === id ? 'selected' : ''}" aria-current="${view === id ? 'page' : 'false'}"><span class="nav-icon" aria-hidden="true">${pages[id].icon}</span><span class="nav-label">${label}</span></button>`).join('')}</nav><div class="aside-bottom"><span class="dot"></span> Your keys. Your control.<small>Self-custody, by design.</small></div></aside>
-    <main><header><a href="/" class="entry-brand" aria-label="Forma home"><span aria-hidden="true">&#9672;</span> forma<span class="brand-caption">YOUR PERSONAL WALLET</span></a><button id="mobile-menu-toggle" class="quiet" aria-label="Open navigation" aria-controls="wallet-sidebar">&#9776;</button><div class="crumb">My wallet <span>/</span> ${view === 'multi' ? 'Bitcoin & Solana' : view === 'overview' ? 'Overview' : view === 'transfer' ? 'Send & receive' : view === 'activity' ? 'Activity' : view === 'market' ? 'Market' : view === 'portfolio' ? 'Portfolio' : view === 'tokens' ? 'Tokens' : view === 'contacts' ? 'Contacts' : view === 'watch' ? 'Watch-only' : view === 'ledger' ? 'Ledger' : 'Recovery & import'}</div><div class="header-tools"><label class="theme-control" for="theme-select"><span>Appearance</span><select id="theme-select" aria-label="Appearance">${['system','light','dark'].map(t => `<option value="${t}" ${theme === t ? 'selected' : ''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}</select></label>${active && view !== 'legacy-multi' ? `<label class="network-control" for="network-select"><span>Network</span><select id="network-select" aria-label="Wallet network">${[["eth","Ethereum Sepolia"],["btc","Bitcoin Testnet3"],["sol","Solana Devnet"]].map(([id,label]) => `<option value="${id}" ${id === (view === "multi" ? primaryChain : "eth") ? "selected" : ""}>${label}</option>`).join("")}</select></label>` : ''}<div class="network"><span class="dot"></span> ${view === 'legacy-multi' ? 'Imported BTC / SOL' : view === 'multi' ? primaryChain === 'btc' ? 'Bitcoin Testnet3' : 'Solana Devnet' : 'Ethereum Sepolia'} <b>TESTNET</b></div></div></header>
-    <section class="content"><div class="title-row"><div><div class="eyebrow">A LITTLE MORE OWNERSHIP</div><h1>${page.title}</h1><p>${page.subtitle}</p></div>${active ? '<button id="lock" class="quiet">⌑ Lock wallet</button>' : '<span class="pill">◈ Self-custody</span>'}</div>
+  const native = !!active && usesNativeWorkspace(selectedNetwork, view);
+  const available = supportsPage(selectedNetwork, view);
+  const asset = networkAsset(selectedNetwork);
+  const title = active && ['overview','portfolio','transfer','activity','market','tokens','contacts','watch'].includes(view) ? networkHeading(selectedNetwork, view) : page.title;
+  const subtitle = view === 'market' ? `Live ${asset.symbol}/USDT prices and historical candles.` : native ? `${asset.network} · Native ${asset.symbol} accounts from your wallet recovery phrase.` : page.subtitle;
+  const content = !available ? `<section class="card"><h2>${asset.name}: feature unavailable</h2><p>This feature is supported on Ethereum Sepolia only. Native ${asset.symbol} receive, send, activity and market are available from the navigation.</p></section>`
+    : active && view === 'market' ? marketMarkup(selectedNetwork)
+    : native ? '<section id="multi-panel" class="multichain-workspace"><p role="status">Opening selected network…</p></section>'
+    : selectedNetwork !== 'eth' && ['watch','contacts'].includes(view) ? `<section id="${view === 'watch' ? 'watch-panel' : 'contacts-panel'}" class="card">Loading network accounts…</section>`
+    : view === 'ledger' ? ledgerMarkup() : view === 'watch' ? watchMarkup()
+    : active ? selectedNetwork !== 'eth' ? settings() : dashboard() + portfolio() + tokensMarkup() + marketMarkup('eth') + settings() + contactsMarkup(active.address)
+    : onboarding(hasVault);
+
+  root.innerHTML = `<button id="sidebar-backdrop" aria-label="Close navigation" tabindex="-1"></button><aside id="wallet-sidebar"><a class="brand" href="/">◈ <span>forma</span></a><button id="sidebar-toggle" class="sidebar-toggle" aria-controls="wallet-sidebar" title="Toggle sidebar"></button><div class="workspace">PERSONAL WALLET</div><nav aria-label="Wallet navigation">${[['overview','Overview'],['portfolio','Portfolio'],['tokens','Tokens'],['transfer','Send & receive'],['market','Market'],['activity','Activity'],['ledger','Ledger'],['watch','Watch-only'],['contacts','Contacts'],['settings','Recovery & import']].map(([id,label]) => `<button data-view="${id}" title="${supportsPage(selectedNetwork, id) ? label : label + ' (Ethereum only)'}" aria-label="${label}" ${(!active && id !== 'overview') || !supportsPage(selectedNetwork, id) ? 'disabled' : ''} class="${view === id ? 'selected' : ''}" aria-current="${view === id ? 'page' : 'false'}"><span class="nav-icon" aria-hidden="true">${pages[id].icon}</span><span class="nav-label">${label}</span></button>`).join('')}</nav><div class="aside-bottom"><span class="dot"></span> Your keys. Your control.<small>Self-custody, by design.</small></div></aside>
+    <main><header><a href="/" class="entry-brand" aria-label="Forma home"><span aria-hidden="true">&#9672;</span> forma<span class="brand-caption">YOUR PERSONAL WALLET</span></a><button id="mobile-menu-toggle" class="quiet" aria-label="Open navigation" aria-controls="wallet-sidebar">&#9776;</button><div class="crumb">My wallet <span>/</span> ${view === 'multi' ? 'Bitcoin & Solana' : view === 'overview' ? 'Overview' : view === 'transfer' ? 'Send & receive' : view === 'activity' ? 'Activity' : view === 'market' ? 'Market' : view === 'portfolio' ? 'Portfolio' : view === 'tokens' ? 'Tokens' : view === 'contacts' ? 'Contacts' : view === 'watch' ? 'Watch-only' : view === 'ledger' ? 'Ledger' : 'Recovery & import'}</div><div class="header-tools"><label class="theme-control" for="theme-select"><span>Appearance</span><select id="theme-select" aria-label="Appearance">${['system','light','dark'].map(t => `<option value="${t}" ${theme === t ? 'selected' : ''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}</select></label>${active ? `<label class="network-control" for="network-select"><span>Network</span><select id="network-select" aria-label="Wallet network">${[["eth","Ethereum Sepolia"],["btc","Bitcoin Testnet3"],["sol","Solana Devnet"]].map(([id,label]) => `<option value="${id}" ${id === (selectedNetwork) ? "selected" : ""}>${label}</option>`).join("")}</select></label>` : ''}<div class="network"><span class="dot"></span> ${networkAsset(selectedNetwork).network} <b>TESTNET</b></div></div></header>
+    <section class="content"><div class="title-row"><div><div class="eyebrow">A LITTLE MORE OWNERSHIP</div><h1>${title}</h1><p>${subtitle}</p></div>${active ? '<button id="lock" class="quiet">⌑ Lock wallet</button>' : '<span class="pill">◈ Self-custody</span>'}</div>
     <div class="test-banner">◇ <span><strong>You’re on a test network.</strong> Use test tokens only. This prototype has not been audited.</span></div>
     <div id="notice" role="status" aria-live="polite">${escape(notice)}</div>
-    ${view === 'multi' || view === 'legacy-multi' ? '<section id="multi-panel" class="multichain-workspace"><p role="status">Loading Bitcoin & Solana wallets…</p></section>' : view === 'ledger' ? ledgerMarkup() : view === 'watch' ? watchMarkup() : active ? dashboard() + portfolio() + tokensMarkup() + marketMarkup() + settings() + contactsMarkup(active.address) : onboarding(hasVault)}
-    <footer class="wallet-footer"><div class="footer-brand"><strong>FORMA</strong><span>Your keys. Your control.</span></div><div class="footer-meta"><span id="footer-network"><i class="dot"></i>${view === 'legacy-multi' ? 'Imported BTC / SOL' : view === 'multi' ? primaryChain === 'btc' ? 'Bitcoin Testnet3' : 'Solana Devnet' : 'Ethereum Sepolia'}</span><span>Self-custody</span><span class="footer-version">Prototype v0.1</span></div></footer></section></main>`;
+    ${content}
+    <footer class="wallet-footer"><div class="footer-brand"><strong>FORMA</strong><span>Your keys. Your control.</span></div><div class="footer-meta"><span id="footer-network"><i class="dot"></i>${networkAsset(selectedNetwork).network}</span><span>Self-custody</span><span class="footer-version">Prototype v0.1</span></div></footer></section></main>`;
   document.getElementById('lock')?.addEventListener('click', lock);
   bind();
   updateAmountVisibility();
@@ -258,41 +271,43 @@ function render() {
   const groups = ['wallet-summary', 'transfer-panels', 'activity-panel', 'settings-panel', 'market-panel', 'portfolio-panel', 'tokens-panel', 'contacts-panel', 'watch-panel', 'ledger-panel', 'network-accounts'];
   const visible = view === 'overview' ? [...groups.slice(0, 3), 'network-accounts'] : view === 'transfer' ? ['transfer-panels'] : view === 'activity' ? ['activity-panel'] : view === 'market' ? ['market-panel'] : view === 'portfolio' ? ['portfolio-panel'] : view === 'tokens' ? ['tokens-panel'] : view === 'contacts' ? ['contacts-panel'] : view === 'watch' ? ['watch-panel'] : view === 'ledger' ? ['ledger-panel'] : ['settings-panel'];
   groups.forEach(id => { const el = document.getElementById(id); if (el) el.hidden = !visible.includes(id); });
-  if (active && view === 'portfolio') disposePortfolio = mountPortfolioValue(document.getElementById('portfolio-panel')!, history, active.address, exactBalance, () => amountsHidden);
-  if (active && view === 'tokens') { const wallet = active; const version = generation; disposeTokens = mountTokens(document.getElementById('tokens-panel')!, provider, wallet, () => active === wallet && version === generation, () => amountsHidden); }
-  if (active && view === 'portfolio') disposeTokenSummary = mountTokenSummary(document.getElementById('token-assets-summary')!, provider, active.address, () => amountsHidden);
-  document.getElementById('open-ledger')?.addEventListener('click', () => { notice = 'Hardware wallet mode. Your local wallet remains locked.'; navigate('ledger'); });
-  if (view === 'multi' || view === 'legacy-multi') {
-    const host = document.getElementById('multi-panel')!, version = generation, wallet = active;
-    const shared = view === 'multi';
+  if (selectedNetwork === 'eth' && active && view === 'portfolio') disposePortfolio = mountPortfolioValue(document.getElementById('portfolio-panel')!, history, active.address, exactBalance, () => amountsHidden);
+  if (selectedNetwork === 'eth' && active && view === 'tokens') { const wallet = active; const version = generation; disposeTokens = mountTokens(document.getElementById('tokens-panel')!, provider, wallet, () => active === wallet && version === generation, () => amountsHidden); }
+  if (selectedNetwork === 'eth' && active && view === 'portfolio') disposeTokenSummary = mountTokenSummary(document.getElementById('token-assets-summary')!, provider, active.address, () => amountsHidden);
+  document.getElementById('open-ledger')?.addEventListener('click', () => { selectedNetwork = 'eth'; notice = 'Hardware wallet mode. Your local wallet remains locked.'; navigate('ledger'); });
+  if (native && active && selectedNetwork !== 'eth') {
+    const host = document.getElementById('multi-panel')!, version = generation, wallet = active, network = selectedNetwork;
     void import('./multichain').then(module => {
-      if (!host.isConnected || version !== generation) return;
-      if (shared && !wallet) { host.textContent = 'Unlock your wallet to open its network accounts.'; return; }
-      disposeMulti = module.mountMulti(host, shared && wallet ? {
-        wallet, chain: primaryChain, current: () => active === wallet && generation === version,
-        lock, backup: downloadWalletBackup,
-        select: chain => { primaryChain = chain; const select = document.getElementById('network-select') as HTMLSelectElement | null; if (select) select.value = chain; const footer = document.getElementById('footer-network'); if (footer) footer.textContent = chain === 'btc' ? 'Bitcoin Testnet3' : 'Solana Devnet'; },
+      if (!host.isConnected || version !== generation || selectedNetwork !== network) return;
+      disposeMulti = module.mountMulti(host, {
+        wallet, chain: network, page: view, current: () => active === wallet && generation === version && selectedNetwork === network,
+        lock, backup: downloadWalletBackup, select: () => {},
         hideBalance: () => amountsHidden,
         toggleBalance: () => { amountsHidden = !amountsHidden; localStorage.setItem('forma.amounts.hidden', String(amountsHidden)); updateAmountVisibility(); },
-      } : undefined);
+      });
     }).catch(() => { if (host.isConnected) host.textContent = 'Unable to load network accounts. Refresh to try again.'; });
   }
-  document.getElementById('open-legacy-multi')?.addEventListener('click', () => navigate('legacy-multi'));
   document.getElementById('network-select')?.addEventListener('change', event => {
     const choice = (event.target as HTMLSelectElement).value;
-    if (choice === 'eth') navigate('overview');
-    else if (choice === 'btc' || choice === 'sol') { primaryChain = choice; navigate('multi'); }
+    if (choice === 'eth' || choice === 'btc' || choice === 'sol') { selectedNetwork = choice; localStorage.setItem('forma.network.v1', choice); navigate(supportsPage(choice, view) ? view : 'overview'); }
   });
   root.querySelectorAll<HTMLButtonElement>('[data-account-network]').forEach(button => button.onclick = () => {
     const choice = button.dataset.accountNetwork;
-    if (choice === 'eth') navigate('overview');
-    else if (choice === 'btc' || choice === 'sol') { primaryChain = choice; navigate('multi'); }
+    if (choice === 'eth' || choice === 'btc' || choice === 'sol') { selectedNetwork = choice; localStorage.setItem('forma.network.v1', choice); navigate('overview'); }
   });
-  if (view === 'ledger') disposeLedger = mountLedger(document.getElementById('ledger-panel')!, provider, () => navigate('overview'));
+  if (available && view === 'ledger') disposeLedger = mountLedger(document.getElementById('ledger-panel')!, provider, () => navigate('overview'));
   document.getElementById('open-watch')?.addEventListener('click', () => { notice = 'Signing wallet remains locked. Watch-only mode needs no unlock.'; navigate('watch'); });
-  if (view === 'watch') disposeWatch = mountWatch(document.getElementById('watch-panel')!, watchReadApi(provider), () => navigate('overview'), () => amountsHidden);
-  if (active && view === 'contacts') mountContacts(active.address, render, text => { notice = text; const el = document.getElementById('notice'); if (el) el.textContent = text; });
-  if (active && view === 'market') disposeMarket = mountMarket(document.getElementById('market-panel')!);
+  if (selectedNetwork === 'eth' && available && view === 'watch') disposeWatch = mountWatch(document.getElementById('watch-panel')!, watchReadApi(provider), () => navigate('overview'), () => amountsHidden);
+  if (selectedNetwork !== 'eth' && (view === 'watch' || (active && view === 'contacts'))) {
+    const network=selectedNetwork, mode=view as 'watch'|'contacts', version=generation, owner=active?.address || '';
+    const host=document.getElementById(mode === 'watch' ? 'watch-panel' : 'contacts-panel')!;
+    void import('./native-public').then(module => {
+      if (generation !== version || !host.isConnected) return;
+      disposeWatch=module.mountNativePublic(host,network,mode,owner,()=>amountsHidden);
+    }).catch(()=>{ if(host.isConnected) host.textContent='Network accounts could not load. Refresh to retry.'; });
+  }
+  if (selectedNetwork === 'eth' && active && view === 'contacts') mountContacts(active.address, render, text => { notice = text; const el = document.getElementById('notice'); if (el) el.textContent = text; });
+  if (active && view === 'market') disposeMarket = mountMarket(document.getElementById('market-panel')!, selectedNetwork);
 }
 
 function activityRows() {
@@ -304,17 +319,24 @@ function activityRows() {
   }).join('');
 }
 
+function phraseRestoreForm() { return `<h3>Restore from a recovery phrase</h3><form id="phrase-form"><label for="import-phrase">Recovery phrase</label><input type="password" id="import-phrase" autocomplete="off" autocapitalize="off" spellcheck="false" required placeholder="12 or 24 words, in order"><label for="seed-passphrase">Optional BIP-39 passphrase (not your wallet password)</label><input type="password" id="seed-passphrase" autocomplete="off"><label for="account-index">Account index (0 for the first account)</label><input id="account-index" type="number" min="0" max="100" value="0" required><p class="hint">Ethereum path m/44'/60'/0'/0/index. Bitcoin and Solana use their fixed first-account paths from the same phrase. Non-empty BIP-39 passphrase imports remain Ethereum-only.</p><label for="new-password">Local encryption password (12+ characters)</label><input id="new-password" type="password" minlength="12" autocomplete="new-password" required><label for="new-confirm">Confirm local password</label><input id="new-confirm" type="password" autocomplete="new-password" required><label class="check"><input type="checkbox" required> This is a test wallet. I understand the imported account may differ if the passphrase or account index is different.</label><button class="primary">Import & switch wallet</button></form>`; }
+
+function savedWalletButtons() {
+  const saved = vaults();
+  return Object.keys(saved).slice(0, 100).map(key => `<button type="button" class="quiet" data-wallet="${escape(key)}" ${saved[key] === localStorage.getItem(VAULT_KEY) ? 'disabled' : ''}>${escape(savedWalletLabel(key, saved[key]))}${saved[key] === localStorage.getItem(VAULT_KEY) ? ' (current)' : ''}</button>`).join('') || '<p>No other saved wallets.</p>';
+}
+
 function settings() {
   const saved = vaults();
   const current = active!.address.toLowerCase().replace(/^0x/, '');
-  return `<section id="settings-panel" class="card"><h2>Recovery & import</h2><p>For phrase-backed wallets, this encrypted backup restores your Ethereum, Bitcoin Testnet and Solana Devnet accounts. Imported Ethereum keys without a phrase remain Ethereum-only.</p><button type="button" id="open-legacy-multi" class="quiet">Open or restore an older BTC & SOL wallet</button><p>Only use fresh test wallets here. Importing preserves the current encrypted wallet.</p>
+  return `<section id="settings-panel" class="card"><h2>Recovery & import</h2><p>For phrase-backed wallets, this encrypted backup restores your Ethereum, Bitcoin Testnet and Solana Devnet accounts. Imported Ethereum keys without a phrase remain Ethereum-only.</p><p>Only use fresh test wallets here. Importing preserves the current encrypted wallet.</p>
   <h3>Recovery phrase</h3><p>Your recovery phrase controls this wallet on every compatible network. Keep it offline and never share it.</p>
   <form id="reveal-form"><label for="reveal-password">Re-enter this wallet’s password</label><input type="password" id="reveal-password" autocomplete="current-password" required><button class="quiet">Reveal recovery phrase for 30 seconds</button></form><div id="phrase-display" aria-live="off"></div>
-  <h3>Import a recovery phrase</h3><form id="phrase-form"><label for="import-phrase">Recovery phrase</label><input type="password" id="import-phrase" autocomplete="off" autocapitalize="off" spellcheck="false" required placeholder="12 or 24 words, in order"><label for="seed-passphrase">Optional BIP-39 passphrase (not your wallet password)</label><input type="password" id="seed-passphrase" autocomplete="off"><label for="account-index">Account index (0 for the first account)</label><input id="account-index" type="number" min="0" max="100" value="0" required><p class="hint">Ethereum path m/44'/60'/0'/0/index. Bitcoin and Solana use their fixed first-account paths from the same phrase. Non-empty BIP-39 passphrase imports remain Ethereum-only.</p><label for="new-password">Local encryption password (12+ characters)</label><input id="new-password" type="password" minlength="12" autocomplete="new-password" required><label for="new-confirm">Confirm local password</label><input id="new-confirm" type="password" autocomplete="new-password" required><label class="check"><input type="checkbox" required> This is a test wallet. I understand the imported account may differ if the passphrase or account index is different.</label><button class="primary">Import & switch wallet</button></form>
+  ${phraseRestoreForm()}
   <h3>Import an encrypted JSON backup</h3><form id="import-form"><label for="keystore">Encrypted keystore JSON</label><input id="keystore" type="file" accept=".json,application/json" required><label for="import-password">Backup password</label><input id="import-password" type="password" autocomplete="current-password" required><label for="backup-local-password">New local password (12+ characters)</label><input id="backup-local-password" type="password" minlength="12" autocomplete="new-password" required><label for="backup-local-confirm">Confirm new local password</label><input id="backup-local-confirm" type="password" autocomplete="new-password" required><button class="quiet">Import encrypted backup</button></form>
   <h3>Verify your backup</h3><p>Decrypt a downloaded backup and check its address against this wallet. Verification does not switch wallets.</p><form id="verify-backup-form"><label for="verify-backup-file">Backup JSON to verify</label><input id="verify-backup-file" type="file" accept=".json,application/json" required><label for="verify-backup-password">Password for this backup</label><input id="verify-backup-password" type="password" autocomplete="off" required><button class="quiet">Verify backup</button></form>
   <h3>Change wallet password</h3><p>Changes local encryption for this wallet only. Previously downloaded backups still use their original passwords. Download and verify a new backup afterwards.</p><form id="change-password-form"><label for="change-old-password">Current local password</label><input id="change-old-password" type="password" autocomplete="current-password" required><label for="change-new-password">New wallet password (12+ characters)</label><input id="change-new-password" type="password" minlength="12" autocomplete="new-password" required><label for="change-confirm-password">Confirm new wallet password</label><input id="change-confirm-password" type="password" autocomplete="new-password" required><button class="quiet">Change password & lock</button></form>
-  <h3>Saved wallets</h3><p>Switching locks the active wallet. Unlock the selected wallet with its own password.</p><div class="saved-wallets">${Object.keys(saved).map(address => `<button class="quiet" data-wallet="${escape(address)}" ${address === current ? 'disabled' : ''}>0x${escape(address)}${address === current ? ' (current)' : ''}</button>`).join('') || '<p>Your current wallet will be preserved automatically when you import another.</p>'}</div></section>`;
+  <h3>Saved wallets</h3><p>Switching locks the active wallet. Unlock the selected wallet with its own password.</p><div class="saved-wallets">${savedWalletButtons()}</div></section>`;
 }
 
 function onboarding(hasVault: boolean) {
@@ -322,8 +344,8 @@ function onboarding(hasVault: boolean) {
   <form id="vault-form"><label for="password">${hasVault ? 'Wallet password' : 'Create a password'}</label><input id="password" type="password" minlength="12" required autocomplete="${hasVault ? 'current-password' : 'new-password'}" placeholder="Enter your wallet password"><p class="auth-input-hint">Your password unlocks this device only.</p>
   ${hasVault ? '' : '<label for="confirm">Confirm password</label><input id="confirm" type="password" required autocomplete="new-password" placeholder="Enter your password again"><label class="check"><input id="understand" type="checkbox" required> I will download my encrypted backup. There is no password reset.</label>'}
   <button class="primary" ${busy ? 'disabled' : ''}>${busy ? 'Working securely…' : hasVault ? 'Unlock wallet →' : 'Create test wallet →'}</button></form><div class="auth-encryption-note"><span aria-hidden="true">&#9671;</span> Encrypted locally. Your keys stay with you.</div><div class="auth-alternatives"><span>OTHER WAYS TO EXPLORE</span><button id="open-ledger" class="auth-option"><span class="auth-option-icon" aria-hidden="true">&#9636;</span><span><strong>Connect a Ledger</strong><small>Approve on your device</small></span><span aria-hidden="true">&#8599;</span></button><button id="open-watch" class="auth-option"><span class="auth-option-icon" aria-hidden="true">&#9678;</span><span><strong>Watch an address</strong><small>Explore without importing keys</small></span><span aria-hidden="true">&#8599;</span></button></div>
-  <p class="hint">One wallet and backup for Ethereum, Bitcoin Testnet and Solana Devnet.</p><button type="button" id="open-legacy-multi" class="quiet">Open or restore an older BTC & SOL wallet</button>${hasVault ? '' : '<div class="divider">Already have a backup?</div><form id="import-form"><label for="keystore">Encrypted keystore JSON</label><input id="keystore" type="file" accept=".json,application/json" required><label for="import-password">Backup password</label><input id="import-password" type="password" required autocomplete="current-password"><label for="backup-local-password">New local password (12+ characters)</label><input id="backup-local-password" type="password" minlength="12" autocomplete="new-password" required><label for="backup-local-confirm">Confirm new local password</label><input id="backup-local-confirm" type="password" autocomplete="new-password" required><button class="quiet" '+(busy ? 'disabled' : '')+'>Import encrypted backup</button></form>'}</section>
-  <section class="intro auth-story"><div class="eyebrow">A LITTLE MORE OWNERSHIP</div><h2>Your wallet.<br><span>Your way.</span></h2><p>A calm place for your digital assets.<br>Built around one simple idea: you hold the keys.</p><div class="auth-art" aria-hidden="true"><div class="auth-orbit orbit-one"></div><div class="auth-orbit orbit-two"></div><div class="auth-vault"><div class="auth-vault-brand">&#9672; forma</div><span>SELF-CUSTODY</span><div class="auth-key">&#9671;</div><div class="auth-vault-bottom"><span>YOUR KEYS</span><span>YOUR CONTROL</span></div></div><div class="auth-art-tag"><i class="dot"></i> On your device</div></div><div class="auth-promises"><div><b>01</b><strong>Created by you</strong><p>Keys generated locally.</p></div><div><b>02</b><strong>Protected locally</strong><p>An encrypted local vault.</p></div><div><b>03</b><strong>Recovered by you</strong><p>Your backup. Your access.</p></div></div><p class="auth-story-note">Sepolia testnet prototype. Use fresh test wallets only.</p></section></div>`;
+  <p class="hint">One wallet and backup for Ethereum, Bitcoin Testnet and Solana Devnet.</p>${'<div class="divider">Restore a wallet</div><form id="import-form"><label for="keystore">Encrypted keystore JSON</label><input id="keystore" type="file" accept=".json,application/json" required><label for="import-password">Backup password</label><input id="import-password" type="password" required autocomplete="current-password"><label for="backup-local-password">New local password (12+ characters)</label><input id="backup-local-password" type="password" minlength="12" autocomplete="new-password" required><label for="backup-local-confirm">Confirm new local password</label><input id="backup-local-confirm" type="password" autocomplete="new-password" required><button class="quiet" '+(busy ? 'disabled' : '')+'>Import encrypted backup</button></form>'}<details class="restore-phrase"><summary>Restore with a recovery phrase</summary>${phraseRestoreForm()}</details><details><summary>Saved wallets</summary><div class="saved-wallets">${savedWalletButtons()}</div></details></section>
+  <section class="intro auth-story"><div class="eyebrow">A LITTLE MORE OWNERSHIP</div><h2>Your wallet.<br><span>Your way.</span></h2><p>A calm place for your digital assets.<br>Built around one simple idea: you hold the keys.</p><div class="auth-art" aria-hidden="true"><div class="auth-orbit orbit-one"></div><div class="auth-orbit orbit-two"></div><div class="auth-vault"><div class="auth-vault-brand">&#9672; forma</div><span>SELF-CUSTODY</span><div class="auth-key">&#9671;</div><div class="auth-vault-bottom"><span>YOUR KEYS</span><span>YOUR CONTROL</span></div></div><div class="auth-art-tag"><i class="dot"></i> On your device</div></div><div class="auth-promises"><div><b>01</b><strong>Created by you</strong><p>Keys generated locally.</p></div><div><b>02</b><strong>Protected locally</strong><p>An encrypted local vault.</p></div><div><b>03</b><strong>Recovered by you</strong><p>Your backup. Your access.</p></div></div><p class="auth-story-note">Testnet wallet prototype. Use fresh test wallets only.</p></section></div>`;
 }
 
 function dashboard() {
@@ -354,6 +376,7 @@ async function task(fn: () => Promise<void>) {
 }
 
 async function refresh() {
+  if (selectedNetwork !== 'eth') return;
   const wallet = active;
   const version = generation;
   if (!wallet) return;
@@ -672,4 +695,5 @@ function bind() {
     });
   });
 }
+try { if (preserveImportedWallet(localStorage, WALLET_LIST)) notice = 'An older wallet was preserved in Saved wallets. Use the normal wallet switch and unlock flow.'; } catch { notice = 'An older wallet could not be added to Saved wallets. Its original encrypted storage is preserved.'; }
 render();
