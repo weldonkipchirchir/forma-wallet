@@ -1,6 +1,8 @@
 export const DEFAULT_RPC = 'https://ethereum-sepolia-rpc.publicnode.com';
 export function validatePublicEnvironment(env, production = false) {
-  for (const key of Object.keys(env)) if (key.startsWith('VITE_') && key !== 'VITE_SEPOLIA_RPC_URL') throw new Error(`Unsupported public build variable: ${key}`);
+  // Hosting metadata is not wallet configuration. Vite separately restricts
+  // browser exposure to the validated RPC variable in vite.config.ts.
+  for (const key of Object.keys(env)) if (key.startsWith('VITE_') && key !== 'VITE_SEPOLIA_RPC_URL' && !key.startsWith('VITE_VERCEL_')) throw new Error(`Unsupported public build variable: ${key}`);
   let rpc;
   try { rpc = new URL(env.VITE_SEPOLIA_RPC_URL || DEFAULT_RPC); } catch { throw new Error('Invalid public RPC URL.'); }
   if (rpc.username || rpc.password || rpc.search || rpc.hash) throw new Error('RPC URL must not contain credentials, query parameters or fragments.');

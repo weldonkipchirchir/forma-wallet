@@ -5,8 +5,23 @@ import { resolve, join, sep } from 'node:path';
 import { validatePublicEnvironment, securityHeaders, DEFAULT_RPC } from '../security-policy.mjs';
 import { prepareRelease, sensitiveMarkers } from '../scripts/release-check.mjs';
 import { vercelConfig } from '../scripts/vercel-config.mjs';
+import { resolveConfig } from 'vite';
 
 describe('production build boundaries', () => {
+  it('ignores Vercel metadata and excludes it from browser environment variables', async () => {
+    const key = 'VITE_VERCEL_OBSERVABILITY_CLIENT_CONFIG';
+    const previous = process.env[key];
+    process.env[key] = 'forma-platform-metadata-test';
+    try {
+      expect(validatePublicEnvironment({ [key]: process.env[key], VITE_VERCEL_GIT_REPO_ID: '123' }, true).href).toBe(DEFAULT_RPC + '/');
+      const config = await resolveConfig({ mode: 'production' }, 'build');
+      expect(config.env[key]).toBeUndefined();
+      expect(config.envPrefix).toBe('VITE_SEPOLIA_RPC_URL');
+      expect(() => validatePublicEnvironment({ [key]: 'metadata', VITE_SECRET: 'private' }, true)).toThrow('VITE_SECRET');
+    } finally {
+      if (previous === undefined) delete process.env[key]; else process.env[key] = previous;
+    }
+  });
   it('configures Vercel with production headers and test-gated static builds', () => {
     const config = vercelConfig();
     expect(config.framework).toBe(null);
