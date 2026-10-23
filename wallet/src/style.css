@@ -147,3 +147,34 @@ header{position:sticky;top:0;z-index:15;background:#fafbf8f5;backdrop-filter:blu
 @media(max-width:1050px){.auth-shell{gap:35px;grid-template-columns:minmax(0,1fr) minmax(0,420px)}.auth-card.card{padding:27px}.auth-story>h2{font-size:49px}.auth-promises{gap:8px}.ledger-columns{grid-template-columns:1fr}.ledger-connect-card{display:block}.ledger-page-heading{align-items:flex-start}.ledger-network-pill{white-space:normal}}
 @media(max-width:700px){.is-entry .content,.is-ledger.wallet-locked .content{padding:20px}.auth-shell{grid-template-columns:1fr;padding-top:12px;gap:32px;max-width:480px;margin:auto}.auth-card.card{padding:26px;order:0}.auth-story{order:1;padding:5px 10px}.auth-story>h2{font-size:42px;letter-spacing:-1.7px}.auth-art{height:190px}.auth-story>p{font-size:12px}.auth-promises{gap:12px}.auth-card-top{margin-bottom:22px}.ledger-page-heading{display:block;margin:13px 0 22px}.ledger-network-pill{display:inline-block;margin-top:16px}.ledger-workspace .card{padding:22px}.ledger-history-card .section-heading{align-items:flex-start;flex-direction:column}.ledger-history-card .section-heading button{width:100%}.entry-brand .brand-caption{display:none}.entry-brand{font-size:24px;gap:7px}.is-entry .test-banner{font-size:10px}.ledger-columns{gap:16px}.ledger-workspace h3{font-size:19px}.ledger-device-art{height:140px}}
 @media(max-width:440px){.wallet-locked header{padding:0 18px}.entry-brand{font-size:21px}.entry-brand>span:first-child{font-size:25px}.wallet-locked .theme-control>span{display:none}.wallet-locked .network b{display:none}.wallet-locked .header-tools{gap:9px}.wallet-locked .theme-control select{padding:8px;width:76px}.wallet-locked .network{font-size:10px}.ledger-connection-actions{flex-direction:column;align-items:center}.auth-card.card{padding:23px}.auth-promises strong{font-size:10px}.auth-art-tag{right:5px}}
+/* Ledger simulator: isolated practice flow, using the wallet theme tokens. */
+.ledger-demo{margin-top:24px;overflow:hidden}
+.ledger-demo>summary{display:flex;align-items:center;gap:14px;cursor:pointer;list-style:none;color:var(--ui-ink);font-size:16px;font-weight:600;min-height:48px}
+.ledger-demo>summary::-webkit-details-marker{display:none}
+.ledger-demo>summary:focus-visible{outline:2px solid var(--ui-accent);outline-offset:6px;border-radius:5px}
+.demo-summary-icon{font-size:30px;color:var(--ui-muted)}
+.ledger-demo>summary small{display:block;font-size:12px;font-weight:400;color:var(--ui-muted);margin-top:7px;line-height:1.6}
+.demo-badge{display:inline-block;font-size:9px;font-weight:600;letter-spacing:1px;border:1px solid var(--ui-border);border-radius:20px;padding:8px 11px;color:var(--ui-muted);white-space:normal;line-height:1.5}
+.ledger-demo>summary>.demo-badge{margin-left:auto;flex-shrink:0}
+.ledger-demo>summary::after{content:'+';font-size:23px;color:var(--ui-muted)}
+.ledger-demo[open]>summary::after{content:'−'}
+.demo-disclaimer{margin-top:22px;padding:14px 18px;border:1px solid var(--ui-border);border-radius:12px;background:var(--ui-soft)}
+.demo-disclaimer strong{font-size:11px;color:var(--ui-ink)}
+.demo-disclaimer p{font-size:12px;margin:7px 0 0;line-height:1.7}
+.demo-steps{display:flex;list-style:none;padding:0;margin:26px 0;gap:12px}
+.demo-steps li{flex:1;display:flex;align-items:center;gap:9px;font-size:12px;color:var(--ui-muted);border-bottom:2px solid var(--ui-border);padding-bottom:14px}
+.demo-steps li>span{display:grid;place-items:center;width:26px;height:26px;border:1px solid var(--ui-border);border-radius:50%;font-size:11px}
+.demo-steps li.current{color:var(--ui-ink);border-color:#93aa6e;font-weight:600}
+.demo-steps li.current>span,.demo-steps li.done>span{background:var(--ui-accent);color:#243b26;border-color:transparent}
+.demo-grid{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:30px;align-items:start}
+.demo-device-panel{text-align:center;padding:26px 16px;background:var(--ui-soft);border:1px solid var(--ui-border);border-radius:16px;min-width:0}
+.demo-device{display:flex;align-items:center;justify-content:center;gap:15px;background:linear-gradient(140deg,#465249,#17221c);border:1px solid #778374;border-radius:20px;max-width:290px;margin:34px auto 28px;padding:20px 17px;box-shadow:0 15px 25px #0002}
+.demo-screen{display:grid;gap:12px;flex:1;min-width:0;background:#101d16;padding:17px 10px;border:1px solid #56634c;border-radius:8px;color:#d9e8a5}
+.demo-screen small{font-size:8px;letter-spacing:1.2px}.demo-screen strong{font-size:13px}.demo-screen>span{font-size:8px;letter-spacing:.8px}
+.demo-device>i{display:block;width:7px;height:32px;border:1px solid #91a18a;border-radius:5px}
+.demo-device-panel>p{font-size:12px;line-height:1.8}.demo-state{display:inline-block;margin-top:12px;font-size:11px;color:var(--ui-ink)}
+.demo-task{min-width:0}.demo-task h3{margin:2px 0 12px;font-size:25px;line-height:1.3}.demo-status,.demo-explainer{font-size:13px;line-height:1.8}
+.demo-transfer{margin:20px 0 10px;border:1px solid var(--ui-border);border-radius:12px;overflow:hidden}
+.demo-transfer>div{display:flex;justify-content:space-between;gap:15px;padding:13px 15px;border-bottom:1px solid var(--ui-border);font-size:12px}.demo-transfer>div:last-child{border:0}.demo-transfer dt{color:var(--ui-muted)}.demo-transfer dd{margin:0;text-align:right;color:var(--ui-ink);overflow-wrap:anywhere}
+.demo-footnote{font-size:11px;line-height:1.7}.demo-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}.demo-actions button{min-height:46px;padding:12px 17px;font-size:12px}.demo-actions .demo-disconnect{flex-basis:100%;background:transparent;color:var(--ui-muted);border:1px solid var(--ui-border)}
+@media(max-width:700px){.demo-grid{grid-template-columns:1fr;gap:24px}.ledger-demo>summary{flex-wrap:wrap;font-size:14px}.ledger-demo>summary>span:nth-child(2){flex:1}.ledger-demo>summary>.demo-badge{margin-left:0;order:3}.demo-device-panel{padding:19px 14px}.demo-device{margin:24px auto}.demo-steps{gap:7px}.demo-steps li{gap:6px;font-size:11px}.demo-task h3{font-size:23px}.demo-actions button{flex-basis:100%;width:100%}.demo-transfer>div{font-size:11px}}
