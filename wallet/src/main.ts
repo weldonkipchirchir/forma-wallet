@@ -369,15 +369,36 @@ function dashboard() {
 
 }
 
-async function task(fn: () => Promise<void>) {
+async function task(fn: () => Promise<void>, form?: HTMLFormElement) {
   if (busy) return;
+  form?.querySelector('.form-error')?.remove();
+  form?.querySelectorAll('[aria-invalid]').forEach(input => {
+    input.removeAttribute('aria-invalid');
+    if (input.getAttribute('aria-describedby') === `${form.id}-error`) input.removeAttribute('aria-describedby');
+  });
   busy = true;
   root.setAttribute('aria-busy', 'true');
   root.querySelectorAll<HTMLButtonElement>('form button, #refresh, #history-refresh, #load-more').forEach(b => { b.disabled = true; b.dataset.originalText = b.textContent || ''; b.textContent = 'Working...'; });
   try { await fn(); } catch (error) {
     notice = walletErrorMessage(error);
     const el = document.getElementById('notice');
-    if (el) el.textContent = notice;
+    if (form?.isConnected) {
+      const message = document.createElement('p');
+      message.className = 'form-error';
+      message.id = `${form.id}-error`;
+      message.setAttribute('role', 'alert');
+      message.tabIndex = -1;
+      message.textContent = notice;
+      const password = form.querySelector<HTMLInputElement>('input[autocomplete="current-password"]');
+      if (password && /incorrect password/i.test(notice)) {
+        password.setAttribute('aria-invalid', 'true');
+        password.setAttribute('aria-describedby', message.id);
+        (password.closest('.password-field') || password).after(message);
+      } else form.prepend(message);
+      message.focus({ preventScroll: true });
+      message.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      if (el) el.textContent = '';
+    } else if (el) el.textContent = notice;
   } finally {
     busy = false;
     root.removeAttribute('aria-busy');
@@ -612,7 +633,7 @@ function bind() {
       notice = vault ? 'Wallet unlocked.' : 'Wallet created. Download your encrypted backup before adding test funds.';
       render();
       try { await refresh(); } catch { notice = 'Wallet ready. Balance unavailable: check your RPC connection and refresh.'; render(); }
-    });
+    }, event.currentTarget as HTMLFormElement);
   });
   document.getElementById('import-form')?.addEventListener('submit', event => {
     event.preventDefault();
@@ -640,7 +661,7 @@ function bind() {
       notice = 'Wallet restored. Phrase-backed backups also restore Bitcoin Testnet and Solana Devnet accounts.';
       render();
       try { await refresh(); } catch { notice = 'Restored. Balance unavailable; try Refresh.'; render(); }
-    });
+    }, event.currentTarget as HTMLFormElement);
   });
   document.getElementById('backup')?.addEventListener('click', downloadWalletBackup);
   document.getElementById('copy')?.addEventListener('click', () => { void task(async () => {
