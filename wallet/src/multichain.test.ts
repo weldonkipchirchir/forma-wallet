@@ -8,11 +8,22 @@ import { restoreBackup } from './security';
 import { verifyBackup, changePassword } from './recovery';
 import { assertTestnet, readMultiBalance, safeNumber, solSimulate, broadcastBitcoin, broadcastSol, submissionStatus } from './multichain-network';
 import { parseMultiJournal } from './multichain';
+import { clearMulti, requireSolSigner } from './multichain-core';
 
 const root = () => HDNodeWallet.fromPhrase('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
 const mockJson = (data: unknown) => new Response(JSON.stringify({jsonrpc:"2.0",id:1,...data as object}), { status: 200 });
 afterEach(() => vi.unstubAllGlobals());
 describe('Bitcoin and Solana key and backup boundaries', () => {
+  it('revokes retained signing sessions when locked', async () => {
+    const keys = await deriveMulti(root());
+    expect(requireSolSigner(keys)).toBeDefined();
+    clearMulti(keys);
+    expect(keys.sol).toBeUndefined();
+    expect(keys.btcKey.every(byte => byte === 0)).toBe(true);
+    expect(() => requireSolSigner(keys)).toThrow('Wallet locked');
+    expect(() => signBitcoin({} as Parameters<typeof signBitcoin>[0], keys)).toThrow('Wallet locked');
+    clearMulti(keys);
+  });
   it('uses one primary backup and password to restore all three account addresses', async () => {
     const primary = unifiedRoot(root()), original = await deriveMulti(primary);
     const password = 'primary-wallet-password-test';

@@ -390,13 +390,13 @@ async function task(fn: () => Promise<void>, form?: HTMLFormElement) {
       message.tabIndex = -1;
       message.textContent = notice;
       const password = form.querySelector<HTMLInputElement>('input[autocomplete="current-password"]');
-      if (password && /incorrect password/i.test(notice)) {
+      if (password && /incorrect (?:wallet )?password/i.test(notice)) {
         password.setAttribute('aria-invalid', 'true');
         password.setAttribute('aria-describedby', message.id);
         (password.closest('.password-field') || password).after(message);
       } else form.prepend(message);
       message.focus({ preventScroll: true });
-      message.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      message.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
       if (el) el.textContent = '';
     } else if (el) el.textContent = notice;
   } finally {
@@ -541,7 +541,7 @@ function bind() {
       if (currentVault === backupJson) recordBackup(localStorage, address, currentVault, 'verified');
       notice = 'Backup verified: it decrypts successfully and matches this wallet address. Keep the file and its password safe.';
       render();
-    });
+    }, event.currentTarget as HTMLFormElement);
   });
   document.getElementById('change-password-form')?.addEventListener('submit', event => {
     event.preventDefault();
@@ -554,7 +554,7 @@ function bind() {
       if (generation !== version || !active) return;
       commitPassword(localStorage, VAULT_KEY, WALLET_LIST, address, oldJson, encrypted);
       lock(); notice = 'Password changed. Unlock with your new password, then download and verify a new backup. Older backups keep their old passwords.'; render();
-    });
+    }, event.currentTarget as HTMLFormElement);
   });
   document.getElementById('reveal-form')?.addEventListener('submit', event => {
     event.preventDefault();
@@ -576,7 +576,7 @@ function bind() {
       const hide = document.createElement('button'); hide.textContent = 'Hide phrase'; hide.className = 'quiet'; hide.onclick = clearSecrets;
       target.replaceChildren(warning, phrase, hide);
       revealTimer = setTimeout(clearSecrets, 30000);
-    });
+    }, event.currentTarget as HTMLFormElement);
   });
   document.getElementById('phrase-form')?.addEventListener('submit', event => {
     event.preventDefault();
@@ -606,7 +606,7 @@ function bind() {
       notice = 'Wallet imported. Check its address and download its encrypted backup.';
       render();
       try { await refresh(); } catch { notice = 'Imported. Network unavailable; try Refresh.'; render(); }
-    });
+    }, event.currentTarget as HTMLFormElement);
   });
   document.getElementById('vault-form')?.addEventListener('submit', event => {
     event.preventDefault();

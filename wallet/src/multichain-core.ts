@@ -12,7 +12,7 @@ export const SOL_PATH = "m/44'/501'/0'/0'";
 export const BTC_GENESIS = '000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943';
 export const SOL_GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
 export type Chain = 'btc' | 'sol';
-export type MultiKeys = { btcKey: Uint8Array; btcAddress: string; btcScript: Uint8Array; sol: Keypair; solAddress: string };
+export type MultiKeys = { btcKey: Uint8Array; btcAddress: string; btcScript: Uint8Array; sol?: Keypair; solAddress: string; disposed?: boolean };
 export function unifiedRoot(wallet: Wallet | HDNodeWallet): HDNodeWallet {
   if (!(wallet instanceof HDNodeWallet) || !wallet.mnemonic) throw new Error('This imported wallet contains an Ethereum key only. Import its original disposable test recovery phrase to derive Bitcoin and Solana accounts. Your existing address and backup are preserved.');
   if (wallet.mnemonic.password) throw new Error('This phrase uses a BIP-39 passphrase, which the current encrypted backup cannot preserve for all networks. Shared accounts are unavailable for this import. Keep its original phrase and passphrase safe.');
@@ -40,7 +40,18 @@ export async function deriveMulti(root: HDNodeWallet): Promise<MultiKeys> {
     return { btcKey, btcAddress: payment.address!, btcScript: payment.script, sol, solAddress: sol.publicKey.toBase58() };
   } finally { seed.fill(0); }
 }
-export function clearMulti(keys?: MultiKeys) { keys?.btcKey.fill(0); keys?.sol.secretKey.fill(0); }
+export function clearMulti(keys?: MultiKeys) {
+  if (!keys) return;
+  keys.disposed = true;
+  keys.btcKey.fill(0);
+  // The SDK secretKey getter returns a copy and has no destroy API.
+  // Drop the signer so retained session objects cannot start another signature.
+  keys.sol = undefined;
+}
+export function requireSolSigner(keys: MultiKeys) {
+  if (keys.disposed || !keys.sol) throw new Error('Wallet locked. Unlock again before signing.');
+  return keys.sol;
+}
 export function encodeMultiBackup(vault: string): string {
   validateKeystore(vault);
   return JSON.stringify({ format: 'forma-multichain-testnet-v1', vault: JSON.parse(vault) }, null, 2);
@@ -112,6 +123,7 @@ export function bitcoinPlan(keys: MultiKeys, to: string, amount: bigint, rate: n
   return { tx, to, amount, fee, change, inputs, rate };
 }
 export function signBitcoin(plan: BitcoinPlan, keys: MultiKeys) {
+  if (keys.disposed) throw new Error('Wallet locked. Unlock again before signing.');
   // Bind every output and input to the reviewed plan before signing.
   if (plan.tx.version!==2 || plan.tx.lockTime!==0 || plan.tx.inputsLength !== plan.inputs.length || plan.tx.outputsLength !== (plan.change ? 2 : 1)) throw new Error('Bitcoin review changed.');
   for (let i = 0; i < plan.inputs.length; i++) {
@@ -126,16 +138,20 @@ export function signBitcoin(plan: BitcoinPlan, keys: MultiKeys) {
   return { raw: plan.tx.hex, id: plan.tx.id };
 }
 export function solTransfer(keys: MultiKeys, to: string, amount: bigint, blockhash: string) {
+  const signer = requireSolSigner(keys);
   const recipient = solRecipient(to);
   if (base58.decode(blockhash).length !== 32) throw new Error('Invalid Solana blockhash.');
   const tx = new SolTransaction();
-  tx.feePayer = keys.sol.publicKey; tx.recentBlockhash = blockhash as Blockhash;
-  return tx.add(SystemProgram.transfer({ fromPubkey: keys.sol.publicKey, toPubkey: recipient, lamports: amount }));
+  tx.feePayer = signer.publicKey; tx.recentBlockhash = blockhash as Blockhash;
+  return tx.add(SystemProgram.transfer({ fromPubkey: signer.publicKey, toPubkey: recipient, lamports: amount }));
 }
 export async function signSol(tx: SolTransaction, keys: MultiKeys, to: string, amount: bigint) {
   const expected = solTransfer(keys, to, amount, tx.recentBlockhash!);
   if (hexlify(tx.serializeMessage()) !== hexlify(expected.serializeMessage())) throw new Error('Solana review changed.');
-  await tx.sign(keys.sol);
+  await tx.sign(requireSolSigner(keys));
+  requireSolSigner(keys);
   if (!tx.signature || !await tx.verifySignatures()) throw new Error('Solana signature verification failed.');
-  return { raw: await tx.serialize(), id: base58.encode(tx.signature) };
+  const raw = await tx.serialize();
+  requireSolSigner(keys);
+  return { raw, id: base58.encode(tx.signature) };
 }

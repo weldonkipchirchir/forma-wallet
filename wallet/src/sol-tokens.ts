@@ -1,7 +1,7 @@
 import { PublicKey, Transaction, TransactionInstruction, type Blockhash } from '@solana/web3.js';
 import { base58 } from '@scure/base';
 import { hexlify } from 'ethers';
-import { solRecipient, type MultiKeys } from './multichain-core';
+import { solRecipient, requireSolSigner, type MultiKeys } from './multichain-core';
 import { assertTestnet, solRpc } from './multichain-network';
 export const TOKEN_PROGRAM = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const ATA_PROGRAM = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
@@ -56,7 +56,10 @@ export async function splTransaction(owner: string,to: string,mint: SplMint,amou
 export async function signSpl(tx: Transaction,keys: MultiKeys,to: string,mint: SplMint,amount: bigint) {
   const expected=await splTransaction(keys.solAddress,to,mint,amount,tx.recentBlockhash!);
   if(hexlify(tx.serializeMessage())!==hexlify(expected.serializeMessage())) throw new Error('SPL review changed.');
-  await tx.sign(keys.sol);
+  await tx.sign(requireSolSigner(keys));
+  requireSolSigner(keys);
   if(!tx.signature || !await tx.verifySignatures()) throw new Error('SPL signature verification failed.');
-  return {raw:await tx.serialize(),id:base58.encode(tx.signature)};
+  const raw = await tx.serialize();
+  requireSolSigner(keys);
+  return {raw,id:base58.encode(tx.signature)};
 }
