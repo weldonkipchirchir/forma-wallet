@@ -40,7 +40,7 @@ Signed transactions are recorded as `unknown` **before** broadcast, without stor
 
 ## Selected network and market
 
-The selected network persists across navigation and reloads. Overview, Portfolio holdings, Send & receive, Activity, Market, Contacts and Watch-only follow it. Contacts are stored per network and primary wallet, require address confirmation, and can be selected in native send forms. Watch-only accounts use public addresses with balance refresh and explorer links; the entry-screen watch mode needs no unlock. Public lists are unencrypted local data. Bitcoin currently accepts native SegWit tb1q accounts. Solana Tokens supports classic SPL mints; Bitcoin Tokens and BTC/SOL Ledger remain unavailable. Activity can fetch the latest 20 network records with status and explorer links; network-record amounts are available on the explorer. Local submissions retain their reviewed amounts.
+The selected network persists across navigation and reloads. Overview, Portfolio holdings, Send & receive, Activity, Market, Contacts and Watch-only follow it. Contacts are stored per network and primary wallet, require address confirmation, and can be selected in native send forms. Watch-only accounts use public addresses with balance refresh and explorer links; the entry-screen watch mode needs no unlock. Public lists are unencrypted local data. Bitcoin currently accepts native SegWit tb1q accounts. Solana Tokens supports classic SPL mints; Bitcoin Tokens and BTC/SOL Ledger remain unavailable. Activity fetches the latest 20 network records with status, time and explorer links. Solana details provide parsed System Program SOL transfers (excluding fees) and per-mint net SPL balance changes. Bitcoin amounts are net address changes, including outgoing fees. Unsupported, failed or unavailable transaction details never produce invented amounts. Local submissions retain their reviewed amounts.
 
 Market uses the selected ETH/USDT, BTC/USDT or SOL/USDT Binance spot pair for prices, percentage changes and candles. ALL means earliest available provider listing data, not blockchain launch. These prices do not give test coins monetary value.
 
@@ -57,3 +57,5 @@ Funded Bitcoin Testnet3 and Solana Devnet transfers, two-browser recovery, cross
 - [Solana network documentation](https://solana.com/docs/references/clusters)
 - [Current Solana JavaScript SDK](https://solana-foundation.github.io/solana-web3.js/)
 - [SLIP-0010 derivation and vectors](https://github.com/satoshilabs/slips/blob/master/slip-0010.md)
+
+Overview account buttons are shared across all three networks. Tracked Solana mint balances load when Tokens opens and after import; Refresh tokens retries all tracked mints. Requests are bounded to three concurrent workers and late responses cannot update a switched or locked wallet. Token amounts remain exact base-unit integers before formatting.

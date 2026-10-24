@@ -1,3 +1,4 @@
+import { enhanceCards } from './ui-panels';
 import { HDNodeWallet, Wallet, formatUnits } from 'ethers';
 import { base64 } from '@scure/base';
 import { Transaction as SolTransaction } from '@solana/web3.js';
@@ -43,11 +44,42 @@ export function mountMulti(host: HTMLElement, primary?: SharedWalletSession) {
   const amount = (value: bigint, which = chain) => formatUnits(value, decimals(which));
   const current = (version: number) => !disposed && version === epoch && !!keys && (!primary || primary.current());
   const field = (id: string) => host.querySelector<HTMLInputElement>(`#${id}`)!;
+  let historyQuery='', historyStatus='all';
   const tokenBalances = new Map<string,string>();
+  let tokenRefreshPending=false;
+  const tokenRefreshQueue:string[]=[];
+  function showTokenBalance(mint:string) {
+    host.querySelectorAll<HTMLElement>('[data-spl-balance]').forEach(el=>{if(el.dataset.splBalance===mint) el.textContent=hiddenBalance?'••••••':tokenBalances.get(mint)||'Loading balance…';});
+  }
+  async function refreshTokenBalances(mints=trackedMints()) {
+    if(!keys) return;
+    for(const mint of mints) if(!tokenRefreshQueue.includes(mint)) tokenRefreshQueue.push(mint);
+    if(tokenRefreshPending) return;
+    tokenRefreshPending=true; const version=epoch, account=owner('sol');
+    try { await Promise.all(Array.from({length:Math.min(3,mints.length)},async()=>{
+      while(tokenRefreshQueue.length && current(version)) {
+        const mint=tokenRefreshQueue.shift()!; tokenBalances.set(mint,'Loading balance…'); showTokenBalance(mint);
+        try { const info=await readMint(mint), result=await readTokenAccount(account,info); if(!current(version)) return;
+          tokenBalances.set(mint,`${formatUnits(result.amount,info.decimals)} SPL units${result.exists?'':' · no associated account yet'}`);
+        } catch { if(!current(version)) return; tokenBalances.set(mint,'Balance unavailable · retry refresh'); }
+        showTokenBalance(mint);
+      }
+    })); } finally {tokenRefreshPending=false;}
+  }
   function trackedMints() { try { return parseMints(JSON.parse(localStorage.getItem(splKey(owner('sol'))) || '[]')); } catch { return []; } }
   function tokenMarkup() {
     const mints=trackedMints();
-    return `<section class="card"><h2>Solana Devnet SPL tokens</h2><p>Classic SPL Token Program only. Token-2022, NFTs, delegated and non-associated accounts are not supported. Mint addresses identify assets; names and symbols are not verified. Test tokens have no monetary value.</p><p>Receive at your Solana wallet address: <code class="multi-address">${escape(owner('sol'))}</code>. The sender must create your associated token account if it does not exist.</p><form id="spl-import"><label for="spl-mint">Devnet mint address</label><input id="spl-mint" maxlength="44" required autocomplete="off"><button class="primary">Validate & add mint</button></form><p>Saved mint addresses are public local data. Removing a mint hides it; it does not move tokens.</p>${mints.map(m=>`<div class="tx"><div><code class="multi-address">${escape(m)}</code><p>${hiddenBalance ? '••••••' : escape(tokenBalances.get(m)||'Refresh to load balance')}</p><a href="${multiExplorer('sol','address',m)}" target="_blank" rel="noopener noreferrer">View mint ↗</a></div><button type="button" data-spl-refresh="${escape(m)}">Refresh</button><button type="button" data-spl-remove="${escape(m)}">Remove</button></div>`).join('') || '<p>No tracked SPL mints yet.</p>'}</section><section class="card"><h3>Send SPL test tokens</h3><p>The recipient must already have an initialized associated token account for this mint. This version does not create accounts or charge account rent.</p><form id="spl-send"><label for="spl-selected">Mint</label><select id="spl-selected" required><option value="">Select a tracked mint</option>${mints.map(m=>`<option value="${escape(m)}">${escape(m)}</option>`).join('')}</select><label for="spl-to">Recipient Solana wallet address</label><input id="spl-to" required maxlength="44" autocomplete="off"><label for="spl-amount">Token amount</label><input id="spl-amount" required inputmode="decimal" maxlength="40"><button class="primary">Review SPL transfer</button></form><div id="multi-review">${reviewMarkup()}</div></section>`;
+    let tokenContacts=[] as ReturnType<typeof parsePublicAccounts>;
+    try { tokenContacts=parsePublicAccounts('sol',JSON.parse(localStorage.getItem(publicAccountsKey('sol','contacts',primary?.wallet.address || '')) || '[]')); } catch { /* Ignore invalid public records. */ }
+    return `<div class="asset-workspace"><section class="card asset-inventory"><div class="section-heading"><div><div class="eyebrow">YOUR ASSETS · SOLANA DEVNET</div><h2>Token collection</h2></div><div class="asset-row-actions"><span class="pill">${mints.length} / 25 tracked</span><button class="quiet" type="button" data-multi="refresh-tokens">↻ Refresh tokens</button></div></div><p>Track classic SPL tokens by their mint address. Test tokens have no monetary value.</p><details class="asset-import" ${mints.length ? '' : 'open'}><summary>＋ Add a token</summary><form id="spl-import"><label for="spl-mint">Devnet mint address</label><input id="spl-mint" placeholder="Paste the full mint address" maxlength="44" required autocomplete="off"><button class="primary">Validate & add mint</button></form><p class="hint">Mint addresses identify tokens. Names and symbols are not verified. Token-2022 is not supported.</p></details><div class="asset-list">${mints.map(m=>`<div class="asset-row"><span class="asset-avatar" aria-hidden="true">◎</span><div class="asset-identity"><strong>SPL token</strong><code title="${escape(m)}">${escape(m)}</code><span class="asset-quantity" data-spl-balance="${escape(m)}">${hiddenBalance ? '••••••' : escape(tokenBalances.get(m)||'Loading balance…')}</span></div><div class="asset-row-actions"><button class="quiet" type="button" data-spl-refresh="${escape(m)}">↻ Refresh</button><a href="${multiExplorer('sol','address',m)}" target="_blank" rel="noopener noreferrer">Explorer ↗</a><button class="text-button" type="button" data-spl-remove="${escape(m)}">Remove</button></div></div>`).join('') || '<div class="empty asset-empty"><span class="asset-avatar" aria-hidden="true">◎</span><h3>Your tokens belong here.</h3><p>Add a Devnet mint to see its balance and send test tokens.</p></div>'}</div></section><div class="portfolio-grid lower asset-transfer-grid"><section class="card"><div class="section-heading"><h2>Send a token</h2><span aria-hidden="true">↗</span></div><form id="spl-send"><label for="spl-selected">Token mint</label><select id="spl-selected" required><option value="">Select a tracked mint</option>${mints.map(m=>`<option value="${escape(m)}">${escape(m)}</option>`).join('')}</select><label for="spl-contact">Saved recipient (optional)</label><select id="spl-contact"><option value="">Enter an address manually</option>${tokenContacts.map(c=>`<option value="${escape(c.address)}">${escape(c.name)} · ${escape(c.address)}</option>`).join('')}</select><label for="spl-to">Recipient wallet address</label><input id="spl-to" placeholder="Solana Devnet wallet address" required maxlength="44" autocomplete="off"><label for="spl-amount">Token amount</label><input id="spl-amount" placeholder="0.00" required inputmode="decimal" maxlength="40"><p class="hint">Fees are paid in devSOL. The recipient must have an existing associated token account for this mint.</p><button class="primary">Review token transfer →</button></form><div id="multi-review">${reviewMarkup()}</div></section><section class="card asset-receive"><div class="section-heading"><h2>Receive tokens</h2><span aria-hidden="true">↙</span></div><div class="asset-avatar" aria-hidden="true">◎</div><h3>One Solana address.</h3><p>Receive supported SPL tokens at your Solana Devnet wallet address.</p><code class="multi-address">${escape(owner('sol'))}</code><button type="button" data-multi="copy" class="quiet">Copy wallet address</button><p class="hint">Choose Solana Devnet at the sender. The sender must create your associated token account if needed. Importing a mint only changes your display.</p><details><summary>Supported accounts & storage</summary><p class="hint">Classic SPL associated accounts only. Token-2022, NFT-specific transfers and account creation are not supported. Mint addresses are saved unencrypted in this browser. Removing a mint does not move tokens.</p></details></section></div></div>`;
+  }
+  function historyMarkup(rows: Submission[]) {
+    return `<section class="card activity-workspace" data-multi-part="history"><div class="section-heading"><div><div class="eyebrow">YOUR TRANSACTIONS</div><h2>Transaction history</h2></div><button type="button" class="quiet" data-multi="refresh">↻ Refresh activity</button></div><div class="history-controls"><label>Status<select id="native-history-status">${['all','pending','unknown','confirmed','failed'].map(status=>`<option value="${status}" ${historyStatus===status?'selected':''}>${status==='all'?'All statuses':status[0].toUpperCase()+status.slice(1)}</option>`).join('')}</select></label><label>Search loaded activity<input id="native-history-search" type="search" maxlength="100" placeholder="Address, mint or transaction ID" value="${escape(historyQuery)}"></label></div><p class="hint">Search covers loaded records only. Amounts show supported transfers or token balance changes. Bitcoin net changes include fees. Unavailable details are never shown as zero. Unknown does not mean failed.</p><div id="native-history-results">${historyResults(rows)}</div><p><a href="${multiExplorer(chain,'address',owner())}" target="_blank" rel="noopener noreferrer">View complete activity on explorer ↗</a></p></section>`;
+  }
+  function historyResults(rows: Submission[]) {
+    const matches=(row:{id:string;status:string;to?:string;mint?:string})=>(historyStatus==='all'||row.status===historyStatus) && [row.id,row.to||'',row.mint||''].some(text=>text.toLowerCase().includes(historyQuery.toLowerCase()));
+    const local=rows.filter(matches), network=recent.filter(matches);
+    return `<div class="history-section-heading"><h3>Locally submitted transfers</h3><span class="pill">${local.length} records</span></div>${local.map(row=>`<div class="history-row"><span class="asset-avatar" aria-hidden="true">↗</span><div class="history-identity"><strong>Sent ${row.mint?'SPL token':symbol()}</strong><p>${escape(new Date(row.when).toLocaleString())}</p><code>To: ${escape(row.to)}</code>${row.mint?`<code>Mint: ${escape(row.mint)}</code>`:''}<a href="${multiExplorer(chain,'tx',row.id)}" target="_blank" rel="noopener noreferrer">View transaction ↗</a></div><div class="history-value"><strong>${hiddenBalance?'••••••':escape(row.mint?formatUnits(BigInt(row.amount),row.decimals!):amount(BigInt(row.amount)))} ${row.mint?'SPL units':symbol()}</strong><span class="status-chip status-${row.status}">${row.status}</span><small>Fee: ${hiddenBalance?'••••••':escape(amount(BigInt(row.fee)))} ${symbol()}</small></div></div>`).join('') || '<div class="empty"><h3>No matching submissions</h3><p>Your transfers from this browser will appear here.</p></div>'}<div class="history-section-heading"><h3>Network activity</h3><span class="pill">${network.length} loaded</span></div><p class="hint">${escape(recentNotice)}</p>${network.map(row=>`<div class="history-row"><span class="asset-avatar" aria-hidden="true">⇄</span><div class="history-identity"><strong>Network transaction</strong><p>${row.timestamp?escape(new Date(row.timestamp).toLocaleString()):'Awaiting confirmation time'}</p><code>${escape(row.id)}</code><a href="${multiExplorer(chain,'tx',row.id)}" target="_blank" rel="noopener noreferrer">View details ↗</a></div><div class="history-value">${row.movements?.length ? row.movements.map(m=>`<strong>${m.direction==='change'?'Net change':m.direction==='sent'?(m.mint?'Token decrease':'Sent'):(m.mint?'Token increase':'Received')} ${hiddenBalance?'••••••':(m.direction==='change'?(m.amount<0n?'−':'+'):'')+formatUnits(m.amount<0n?-m.amount:m.amount,m.decimals)} ${m.asset}</strong>${m.mint?`<code class="history-mint">Mint: ${escape(m.mint)}</code>`:''}`).join('') : `<small>${row.status==='failed'?'No successful transfer':'Amount unavailable'}</small>`}<span class="status-chip status-${row.status}">${row.status}</span></div></div>`).join('') || '<div class="empty"><h3>No matching network activity</h3><p>Refresh to load recent records or check the explorer.</p></div>'}`;
   }
   function journal() { try { return parseMultiJournal(JSON.parse(localStorage.getItem(JOURNAL) || '[]')); } catch { return []; } }
   function record(row: Submission) {
@@ -61,7 +93,8 @@ export function mountMulti(host: HTMLElement, primary?: SharedWalletSession) {
     const rows = journal().filter(row => row.owner === owner() && row.chain === chain);
     if (keys && primary?.page === 'tokens') {
       host.innerHTML=`<p id="multi-notice" role="status">${escape(note)}</p>${tokenMarkup()}`;
-      controls(); return;
+      const contact=host.querySelector<HTMLSelectElement>('#spl-contact'); if(contact) contact.onchange=()=>{field('spl-to').value=contact.value;review=undefined;host.querySelector('#multi-review')?.replaceChildren();};
+      enhanceCards(host); controls(); return;
     }
     host.innerHTML = `<div class="section-heading"><div><div class="eyebrow">${primary ? 'ONE WALLET · TEST NETWORKS' : 'OLDER IMPORTED WALLET'}</div><h2>${primary ? chain === 'btc' ? 'Your Bitcoin test wallet.' : 'Your Solana devnet wallet.' : 'Your original BTC & SOL accounts.'}</h2></div>${keys && !primary ? '<button type="button" data-multi="lock" class="quiet">Lock imported wallet</button>' : ''}</div>
       <p>${chain === 'btc' ? 'Bitcoin Testnet3 only. Native BTC transfers only.' : 'Solana Devnet only. Native SOL and classic SPL token transfers.'} No mainnet, swaps or hardware signing.</p><p id="multi-notice" class="ledger-status" role="status" aria-live="polite">${escape(note)}</p>
@@ -69,7 +102,7 @@ export function mountMulti(host: HTMLElement, primary?: SharedWalletSession) {
       <div class="multichain-grid"><section class="card" data-multi-part="receive"><div class="eyebrow">${chain === 'btc' ? 'BITCOIN TESTNET3 · NOT MAINNET' : 'SOLANA DEVNET · NOT MAINNET'}</div><h3>Receive ${symbol()}</h3><p class="multi-balance">${hiddenBalance ? '••••••' : balance === undefined ? '—' : escape(amount(balance))} ${symbol()}</p><button type="button" data-multi="privacy" class="quiet">${hiddenBalance ? 'Show' : 'Hide'} balance</button><button type="button" data-multi="refresh" class="quiet">Refresh balance & submissions</button>${chain === 'btc' ? `<p>Confirmed balance only. Pending net change: ${hiddenBalance ? '••••••' : escape(amount(unconfirmed))} tBTC. Only confirmed outputs can be spent.</p>` : ''}<canvas id="multi-qr" aria-label="Public testnet receive address QR code"></canvas><code class="multi-address">${escape(owner())}</code><button type="button" data-multi="copy" class="quiet">Copy public address</button><p><a href="${multiExplorer(chain, 'address', owner())}" target="_blank" rel="noopener noreferrer">View address on testnet explorer ↗</a></p><p>Use this address only on the network shown above. A Solana address alone does not identify its network.</p><p class="hint">First account only: ${chain === 'btc' ? BTC_PATH : SOL_PATH}. No account discovery or change-address scanning. ${chain === 'btc' ? 'Bitcoin change returns to this same address.' : 'Native SOL transfers only.'}</p></section>
       <section class="card" data-multi-part="send"><h3>Send ${symbol()}</h3><form id="multi-send"><label for="multi-to">${chain === 'btc' ? 'Bitcoin Testnet recipient (tb1q)' : 'Solana Devnet recipient'}</label><input id="multi-to" required autocomplete="off" maxlength="90"><label for="multi-amount">Amount in ${symbol()}</label><input id="multi-amount" required inputmode="decimal" maxlength="40">${chain === 'btc' ? '<label for="multi-rate">Fee rate (sat/vB, 1–100)</label><input id="multi-rate" required type="number" min="1" max="100" step="1" value="2"><p class="hint">Manual fee rate. Confirmation time is not guaranteed.</p>' : ''}<button class="primary" type="submit">Review testnet transfer</button></form><div id="multi-review">${reviewMarkup()}</div></section></div>
       <section class="card" data-multi-part="backup"><h3>${primary ? 'One backup for all three networks' : 'Original imported-wallet backup'}</h3><p>${primary ? 'Your primary encrypted wallet backup preserves the recovery phrase for Ethereum, Bitcoin Testnet and Solana Devnet. Use the same local password; no second vault is required.' : 'This older wallet has its own phrase and password. Keep its original backup; its accounts cannot be merged into a different phrase without changing addresses.'}</p><button type="button" data-multi="backup" class="quiet">${primary ? 'Download wallet encrypted backup' : 'Download imported BTC & SOL backup'}</button><p>Auto-locks after 5 minutes idle or when hidden. Save the backup before adding test funds.</p></section>
-      <section class="card" data-multi-part="history"><button type="button" class="quiet" data-multi="refresh">Refresh activity</button><h3>Locally submitted ${symbol()} transfers</h3><p>Shows this browser’s submissions only. For incoming and older transactions, use the address explorer. Unknown does not mean failed. Pending or unknown submissions block another send on that account until resolved; do not retry blindly.</p>${rows.map(row => `<div class="tx"><div><strong>${hiddenBalance ? '••••••' : escape(row.mint ? formatUnits(BigInt(row.amount),row.decimals!) : amount(BigInt(row.amount)))} ${row.mint ? 'SPL units' : symbol()} · ${row.status}${row.mint ? ' · mint ' + escape(row.mint) : ''}</strong><p>Fee: ${hiddenBalance ? '••••••' : escape(amount(BigInt(row.fee)))} ${symbol()}</p><p>${escape(new Date(row.when).toLocaleString())}</p><code class="multi-address">To: ${escape(row.to)}</code></div><a href="${multiExplorer(chain, 'tx', row.id)}" target="_blank" rel="noopener noreferrer">Check transaction ↗</a></div>`).join('') || '<p>No locally recorded submissions for this account.</p>'}<h3>Recent network activity</h3><p>${escape(recentNotice)}</p>${recent.map(row => `<div class="tx"><div><strong>${row.status}</strong><p>${row.timestamp ? escape(new Date(row.timestamp).toLocaleString()) : 'Awaiting confirmation time'}</p><code class="multi-address">${escape(row.id)}</code></div><a href="${multiExplorer(chain, 'tx', row.id)}" target="_blank" rel="noopener noreferrer">View transaction ↗</a></div>`).join('') || '<p>No recent network records loaded.</p>'}</section>`}`;
+      ${historyMarkup(rows)}`}`;
     if (keys) {
       const version = epoch;
       void QRCode.toCanvas(host.querySelector<HTMLCanvasElement>('#multi-qr')!, chain === 'btc' ? `bitcoin:${owner()}` : owner(), { width: 180, margin: 4 }).catch(() => { if (current(version)) message('QR unavailable. Use the full public address.'); });
@@ -78,8 +111,8 @@ export function mountMulti(host: HTMLElement, primary?: SharedWalletSession) {
       let contacts = [] as ReturnType<typeof parsePublicAccounts>;
       try { contacts=parsePublicAccounts(chain,JSON.parse(localStorage.getItem(publicAccountsKey(chain,'contacts',primary.wallet.address)) || '[]')); } catch { /* Invalid public cache. */ }
       const form=host.querySelector<HTMLFormElement>('#multi-send');
-      if (form && contacts.length) {
-        const label=document.createElement('label'); label.textContent='Saved recipient (verify the full address again)';
+      if (form) {
+        const label=document.createElement('label'); label.textContent='Saved recipient (optional)';
         const select=document.createElement('select'); select.innerHTML='<option value="">Enter manually</option>'+contacts.map(c=>`<option value="${escape(c.address)}">${escape(c.name)} · ${escape(c.address)}</option>`).join('');
         select.onchange=()=>{ field('multi-to').value=select.value; review=undefined; host.querySelector('#multi-review')?.replaceChildren(); };
         label.append(select); form.prepend(label);
@@ -89,7 +122,48 @@ export function mountMulti(host: HTMLElement, primary?: SharedWalletSession) {
       host.querySelectorAll<HTMLElement>('[data-multi-part]').forEach(el => { el.hidden = !visible.includes(el.dataset.multiPart!); });
       const grid = host.querySelector<HTMLElement>('.multichain-grid'); if (grid) grid.hidden = primary.page === 'activity';
     }
-    controls();
+    if (keys && primary) alignWalletLayout();
+    const search=host.querySelector<HTMLInputElement>('#native-history-search'), status=host.querySelector<HTMLSelectElement>('#native-history-status');
+    const updateHistory=()=>{host.querySelector('#native-history-results')!.innerHTML=historyResults(journal().filter(row=>row.owner===owner()&&row.chain===chain));};
+    if(search) search.oninput=()=>{historyQuery=search.value;updateHistory();};
+    if(status) status.onchange=()=>{historyStatus=status.value;updateHistory();};
+    enhanceCards(host); controls();
+  }
+  function alignWalletLayout() {
+    const receive=host.querySelector<HTMLElement>('[data-multi-part="receive"]')!;
+    const send=host.querySelector<HTMLElement>('[data-multi-part="send"]')!;
+    const backup=host.querySelector<HTMLElement>('[data-multi-part="backup"]')!;
+    const grid=host.querySelector<HTMLElement>('.multichain-grid')!;
+    // Reuse the same summary / transfer structure as the Ethereum workspace.
+    host.classList.add('unified-network');
+    const intro=host.querySelector('.section-heading'); intro?.remove();
+    const description=host.querySelector(':scope > p'); if(description?.id!=='multi-notice') description?.remove();
+    const summary=document.createElement('section'); summary.className='wallet-grid native-summary';
+    summary.hidden=!['overview','portfolio'].includes(primary!.page || 'overview');
+    const card=document.createElement('div'); card.className='balance-card';
+    card.innerHTML=`<div class="eyebrow">AVAILABLE BALANCE <span>${chain==='btc'?'BITCOIN TESTNET3':'SOLANA DEVNET'}</span></div>`;
+    const value=receive.querySelector<HTMLElement>('.multi-balance')!; value.className='balance'; card.append(value);
+    const privacy=receive.querySelector<HTMLButtonElement>('[data-multi="privacy"]')!;
+    const refresh=receive.querySelector<HTMLButtonElement>('[data-multi="refresh"]')!;
+    const actions=document.createElement('div'); actions.className='balance-actions'; actions.append(privacy,refresh); card.append(actions);
+    const address=document.createElement('div'); address.className='address-bar'; address.innerHTML=`<span>WALLET ADDRESS</span><code>${escape(owner().slice(0,9))}…${escape(owner().slice(-6))}</code><button type="button" data-multi="copy" aria-label="Copy wallet address">⧉</button>`; card.append(address);
+    backup.classList.add('security'); backup.hidden=false;
+    summary.append(card,backup); grid.before(summary);
+    grid.prepend(send); grid.classList.add('wallet-grid','lower','native-transfer-grid');
+    const qr=receive.querySelector('canvas'); if(qr) { const wrapper=document.createElement('div'); wrapper.className='receive'; qr.before(wrapper); wrapper.append(qr); }
+    const addressCode=receive.querySelector('.multi-address');
+    if(addressCode) {
+      const network=document.createElement('strong'); network.className='receive-network'; network.textContent=chain==='btc'?'Bitcoin Testnet3 only':'Solana Devnet only'; addressCode.before(network);
+      const save=document.createElement('button'); save.type='button'; save.className='quiet'; save.dataset.multi='save-qr'; save.textContent='Save receive QR image'; addressCode.after(save);
+    }
+    receive.querySelector('.eyebrow')?.remove();
+    const heading=receive.querySelector('h3'); if(heading) heading.outerHTML='<div class="section-heading"><h2>Receive crypto</h2><span aria-hidden="true">↙</span></div>';
+    const sendHeading=send.querySelector('h3'); if(sendHeading) sendHeading.outerHTML='<div class="section-heading"><h2>Send crypto</h2><span aria-hidden="true">↗</span></div>'; field('multi-to').placeholder=chain==='btc'?'tb1q…':'Solana wallet address'; field('multi-amount').placeholder='0.00'; const submit=send.querySelector('button[type="submit"]'); if(submit) submit.textContent='Review transfer →';
+    const notes=receive.querySelectorAll(':scope > p'); if(notes.length) { const details=document.createElement('details'); details.className='receive-details'; details.innerHTML='<summary>Network & account details</summary>'; notes.forEach(p=>details.append(p)); receive.append(details); }
+    const privacyNote=document.createElement('p'); privacyNote.className='hint'; privacyNote.textContent='Share your public address. Never share your password or backup.'; receive.querySelector('.receive-details')?.before(privacyNote);
+    grid.hidden=!['overview','transfer'].includes(primary!.page || 'overview');
+    receive.hidden=false; send.hidden=false;
+    const history=host.querySelector<HTMLElement>('[data-multi-part="history"]'); history?.classList.add('activity');
   }
   function entry() {
     const password = (id: string, label: string, fresh = false) => `<label for="${id}">${label}</label><input type="password" id="${id}" required ${fresh ? 'minlength="12"' : ''} autocomplete="${fresh ? 'new-password' : 'current-password'}">`;
@@ -148,7 +222,7 @@ export function mountMulti(host: HTMLElement, primary?: SharedWalletSession) {
     balance = result.confirmed; unconfirmed = result.unconfirmed;
     if (primary?.page === 'activity' || primary?.page === 'overview') {
       recent = []; recentNotice = 'Recent network activity unavailable. Check the address explorer.';
-      try { const loaded = await readMultiActivity(selected, account); if (!current(version)) return; recent = loaded; recentNotice = 'Latest 20 network transactions. Amounts and full transfer details are available on the explorer.'; } catch { /* Keep balances and local submissions available independently. */ }
+      try { const loaded = await readMultiActivity(selected, account); if (!current(version)) return; recent = loaded; recentNotice = 'Latest 20 network transactions. SPL amounts are net token balance changes; Bitcoin amounts are net address changes including fees.'; } catch { /* Keep balances and local submissions available independently. */ }
     }
     let unavailable = 0;
     for (const row of journal().filter(r => r.owner === account && r.chain === selected).slice(0, 20)) {
@@ -235,7 +309,7 @@ export function mountMulti(host: HTMLElement, primary?: SharedWalletSession) {
     const version = epoch;
     if(form.id==='spl-import') {
       const mint=field('spl-mint').value.trim();
-      void run(async()=>{ const info=await readMint(mint); if(!current(version)) return; const rows=trackedMints(); if(rows.includes(info.mint)) throw new Error('Mint already tracked.'); if(rows.length>=25) throw new Error('Up to 25 mints supported.'); localStorage.setItem(splKey(owner('sol')),JSON.stringify([...rows,info.mint])); note='Devnet mint validated. Refresh its balance. Mint addresses are not an endorsement.'; paint(); });
+      void run(async()=>{ const info=await readMint(mint); if(!current(version)) return; const rows=trackedMints(); if(rows.includes(info.mint)) throw new Error('Mint already tracked.'); if(rows.length>=25) throw new Error('Up to 25 mints supported.'); localStorage.setItem(splKey(owner('sol')),JSON.stringify([...rows,info.mint])); note='Devnet mint validated. Loading its balance. Mint addresses are not an endorsement.'; paint(); await refreshTokenBalances([info.mint]); });
     } else if(form.id==='spl-send') {
       const to=field('spl-to').value.trim(), value=field('spl-amount').value, mint=(host.querySelector('#spl-selected') as HTMLSelectElement).value;
       if(!trackedMints().includes(mint)) { message('Select a tracked mint.'); return; }
@@ -270,6 +344,7 @@ export function mountMulti(host: HTMLElement, primary?: SharedWalletSession) {
     }
     const action = event.target.closest<HTMLButtonElement>('button[data-multi]')?.dataset.multi;
     if (!action || disposed) return;
+    if (action === 'refresh-tokens') { void refreshTokenBalances(); return; }
     if (action === 'lock') { lock(); return; }
     if (busy) return;
     if (action === 'btc' || action === 'sol') { epoch++; chain = action; primary?.select(action); review = undefined; balance = undefined; unconfirmed = 0n; note = 'Network selected. Refresh to load its balance.'; paint(); touch(); }
@@ -277,6 +352,10 @@ export function mountMulti(host: HTMLElement, primary?: SharedWalletSession) {
     if (action === 'cancel') { review = undefined; paint(); }
     if (action === 'refresh') void run(refresh);
     if (action === 'copy') void run(async () => { await navigator.clipboard.writeText(owner()); message('Public testnet address copied.'); });
+    if (action === 'save-qr') void run(async () => {
+      const canvas=host.querySelector<HTMLCanvasElement>('#multi-qr'); if(!canvas || !canvas.width) throw new Error('Receive QR is not ready.');
+      const link=document.createElement('a'); link.href=canvas.toDataURL('image/png'); link.download=`forma-${chain}-testnet-receive.png`; link.click(); message('Public receive QR download requested.');
+    });
     if (action === 'sign') {
       const ack = host.querySelector<HTMLInputElement>('#multi-ack')?.checked === true;
       void run(async () => {
@@ -308,7 +387,7 @@ export function mountMulti(host: HTMLElement, primary?: SharedWalletSession) {
       try {
         const derived = await deriveMulti(unifiedRoot(primary.wallet));
         if (disposed || version !== epoch || !primary.current()) { clearMulti(derived); return; }
-        keys = derived; loadingPrimary = false; paint(); touch(); if(primary.page !== 'tokens') void run(refresh);
+        keys = derived; loadingPrimary = false; paint(); touch(); if(primary.page === 'tokens') void refreshTokenBalances(); else void run(refresh);
       } catch (error) {
         if (!disposed && version === epoch && primary.current()) { loadingPrimary = false; note = walletErrorMessage(error); paint(); }
       }

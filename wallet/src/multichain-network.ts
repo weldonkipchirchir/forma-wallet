@@ -1,5 +1,6 @@
 import { hex, base64 } from '@scure/base';
 import { BTC_GENESIS, SOL_GENESIS, verifyUtxo, type MultiKeys, type Chain } from './multichain-core';
+import { bitcoinMovements, solanaMovements, type Movement } from './network-amounts';
 export const BTC_API = 'https://blockstream.info/testnet/api';
 export const SOL_API = 'https://api.devnet.solana.com';
 export function safeNumber(value: unknown): number {
@@ -84,17 +85,28 @@ export async function submissionStatus(chain: Chain, id: string): Promise<'unkno
 export const multiExplorer = (chain: Chain, kind: 'address' | 'tx', id: string) => chain === 'btc'
   ? `https://blockstream.info/testnet/${kind}/${encodeURIComponent(id)}`
   : `https://explorer.solana.com/${kind}/${encodeURIComponent(id)}?cluster=devnet`;
-export type NetworkActivity = { id: string; status: 'pending' | 'confirmed' | 'failed'; timestamp: number | null };
+export type NetworkActivity = { id: string; status: 'pending' | 'confirmed' | 'failed'; timestamp: number | null; movements?: Movement[] };
 export async function readMultiActivity(chain: Chain, address: string): Promise<NetworkActivity[]> {
   await assertTestnet(chain);
   const rows = chain === 'btc'
     ? JSON.parse(await request(`${BTC_API}/address/${encodeURIComponent(address)}/txs`))
     : await solRpc('getSignaturesForAddress', [address, { limit: 20, commitment: 'confirmed' }]);
   if (!Array.isArray(rows)) throw new Error('Invalid activity response.');
-  return rows.slice(0, 20).map(row => {
+  const records: NetworkActivity[] = rows.slice(0, 20).map(row => {
     const id = chain === 'btc' ? row?.txid : row?.signature;
     if (typeof id !== 'string' || !(chain === 'btc' ? /^[a-f0-9]{64}$/ : /^[1-9A-HJ-NP-Za-km-z]{80,90}$/).test(id)) throw new Error('Invalid activity transaction ID.');
     const time = chain === 'btc' ? row.status?.block_time : row.blockTime;
-    return { id, status: chain === 'btc' ? row.status?.confirmed === true ? 'confirmed' : 'pending' : row.err ? 'failed' : 'confirmed', timestamp: typeof time === 'number' && Number.isSafeInteger(time) && time > 0 ? time * 1000 : null };
+    let movements: Movement[] | undefined;
+    if(chain==='btc') try { movements=bitcoinMovements(row,address); } catch { /* Keep status when amounts cannot be verified. */ }
+    return { id, status: chain === 'btc' ? row.status?.confirmed === true ? 'confirmed' : 'pending' : row.err ? 'failed' : 'confirmed', timestamp: typeof time === 'number' && Number.isSafeInteger(time) && time > 0 ? time * 1000 : null, movements };
   });
+  if(chain==='sol') {
+    let next=0;
+    await Promise.all(Array.from({length:Math.min(3,records.length)},async()=>{
+      while(next<records.length) { const row=records[next++]; if(row.status==='failed') continue;
+        try { const tx=await solRpc('getTransaction',[row.id,{encoding:'jsonParsed',commitment:'confirmed',maxSupportedTransactionVersion:0}]); if(tx?.transaction?.signatures?.[0]===row.id) row.movements=solanaMovements(tx,address); } catch { /* Never invent amounts when transaction details are unavailable. */ }
+      }
+    }));
+  }
+  return records;
 }
