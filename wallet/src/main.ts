@@ -136,6 +136,21 @@ function loadHistory() {
 function persistHistory() { if (active) localStorage.setItem(historyKey(active.address), JSON.stringify(history)); }
 function clearSecrets() { clearTimeout(revealTimer); document.getElementById('phrase-display')?.replaceChildren(); }
 function navigate(next: string) { if (next === 'multi') next = 'overview'; generation++; clearSecrets(); pending = null; view = next; render(); }
+function selectNetwork(choice: NetworkId, next: string) {
+  selectedNetwork = choice;
+  localStorage.setItem('forma.network.v1', choice);
+  navigate(next);
+  if (choice !== 'eth' || !active) return;
+  const version = generation;
+  // Public reads may finish after a network switch; never repaint a newer view.
+  void refresh().then(() => {
+    if (generation === version && active && selectedNetwork === 'eth') render();
+  }).catch(() => {
+    if (generation !== version || !active || selectedNetwork !== 'eth') return;
+    notice = 'Ethereum balance unavailable. Check your connection and refresh.';
+    render();
+  });
+}
 
 function nativeSubmissions(address: string) {
   try { return parseJournal(JSON.parse(localStorage.getItem(nativeJournalKey(address)) || '[]')); } catch { return []; }
@@ -294,11 +309,11 @@ function render() {
   }
   document.getElementById('network-select')?.addEventListener('change', event => {
     const choice = (event.target as HTMLSelectElement).value;
-    if (choice === 'eth' || choice === 'btc' || choice === 'sol') { selectedNetwork = choice; localStorage.setItem('forma.network.v1', choice); navigate(supportsPage(choice, view) ? view : 'overview'); }
+    if (choice === 'eth' || choice === 'btc' || choice === 'sol') selectNetwork(choice, supportsPage(choice, view) ? view : 'overview');
   });
   root.querySelectorAll<HTMLButtonElement>('[data-account-network]').forEach(button => button.onclick = () => {
     const choice = button.dataset.accountNetwork;
-    if (choice === 'eth' || choice === 'btc' || choice === 'sol') { selectedNetwork = choice; localStorage.setItem('forma.network.v1', choice); navigate('overview'); }
+    if (choice === 'eth' || choice === 'btc' || choice === 'sol') selectNetwork(choice, 'overview');
   });
   if (available && view === 'ledger') disposeLedger = mountLedger(document.getElementById('ledger-panel')!, provider, () => navigate('overview'));
   document.getElementById('open-watch')?.addEventListener('click', () => { notice = 'Signing wallet remains locked. Watch-only mode needs no unlock.'; navigate('watch'); });

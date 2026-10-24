@@ -1,5 +1,6 @@
 import { enhanceCards } from './ui-panels';
 import { matchesNativeActivity } from './activity-filter';
+import { nativeRefreshRows, retainNativeSubmission } from './native-journal';
 import { HDNodeWallet, Wallet, formatUnits } from 'ethers';
 import { base64 } from '@scure/base';
 import { Transaction as SolTransaction } from '@solana/web3.js';
@@ -84,7 +85,7 @@ export function mountMulti(host: HTMLElement, primary?: SharedWalletSession) {
   }
   function journal() { try { return parseMultiJournal(JSON.parse(localStorage.getItem(JOURNAL) || '[]')); } catch { return []; } }
   function record(row: Submission) {
-    localStorage.setItem(JOURNAL, JSON.stringify([row, ...journal().filter(r => r.id !== row.id || r.chain !== row.chain)].slice(0, 100)));
+    localStorage.setItem(JOURNAL, JSON.stringify(retainNativeSubmission(journal(), row)));
   }
   function touch() { clearTimeout(timer); if (keys) timer = setTimeout(lock, 300000); }
   function lock() { epoch++; clearTimeout(timer); clearMulti(keys); keys = undefined; review = undefined; balance = undefined; unconfirmed = 0n; busy = false; note = 'Bitcoin & Solana vault locked.'; if (!disposed) { if (primary) primary.lock(); else paint(); } }
@@ -226,7 +227,7 @@ export function mountMulti(host: HTMLElement, primary?: SharedWalletSession) {
       try { const loaded = await readMultiActivity(selected, account); if (!current(version)) return; recent = loaded; recentNotice = 'Latest 20 network transactions. SPL amounts are net token balance changes; Bitcoin amounts are net address changes including fees.'; } catch { /* Keep balances and local submissions available independently. */ }
     }
     let unavailable = 0;
-    for (const row of journal().filter(r => r.owner === account && r.chain === selected).slice(0, 20)) {
+    for (const row of nativeRefreshRows(journal().filter(r => r.owner === account && r.chain === selected))) {
       try { const status = await submissionStatus(selected, row.id); if (!current(version)) return; record({ ...row, status }); }
       catch { unavailable++; }
     }
