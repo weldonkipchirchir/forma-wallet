@@ -6,7 +6,7 @@ import { validateKeystore, restoreBackup } from './security';
 // Public, disposable fixture. Never fund it.
 const signer = new Wallet('0x' + '11'.repeat(32));
 const review: TransactionRequest = { to: '0x' + '22'.repeat(20), value: 123n, data: '0x',
-  chainId: 11155111n, type: 2, gasLimit: 21000n, maxFeePerGas: 10n, maxPriorityFeePerGas: 1n };
+  nonce: 0, chainId: 11155111n, type: 2, gasLimit: 21000n, maxFeePerGas: 10n, maxPriorityFeePerGas: 1n };
 
 describe('serialized transaction intent binding', () => {
   it('accepts exactly the reviewed native transfer', async () => {
@@ -14,7 +14,7 @@ describe('serialized transaction intent binding', () => {
     expect(() => assertSignedMatchesReview(raw, review, signer.address)).not.toThrow();
   });
   it.each([
-    ['destination', { to: '0x' + '33'.repeat(20) }], ['amount', { value: 124n }],
+    ['nonce', { nonce: 1 }], ['destination', { to: '0x' + '33'.repeat(20) }], ['amount', { value: 124n }],
     ['calldata', { data: '0x1234' }], ['chain', { chainId: 1n }],
     ['gas limit', { gasLimit: 21001n }], ['max fee', { maxFeePerGas: 11n }],
     ['priority fee', { maxPriorityFeePerGas: 2n }],

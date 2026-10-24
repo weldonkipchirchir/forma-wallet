@@ -1,3 +1,4 @@
+import { boundedJson } from './bounded-response';
 export const MARKET_API = 'https://data-api.binance.vision';
 export const ranges = [
   { label: '1H', hours: 1, interval: '1m', limit: 60 },
@@ -28,5 +29,5 @@ export function percentageChange(current: number, previous: number) {
 export async function marketRequest(path: string, signal: AbortSignal) {
   const response = await fetch(`${MARKET_API}/api/v3/${path}`, { signal: AbortSignal.any([signal, AbortSignal.timeout(12000)]), referrerPolicy: 'no-referrer', credentials: 'omit' });
   if (!response.ok) throw new Error(response.status === 451 || response.status === 403 ? 'Market data is unavailable in this region.' : response.status === 429 ? 'Market provider rate limit reached. Retrying shortly.' : 'Market provider is unavailable.');
-  return response.json();
+  return boundedJson(response);
 }

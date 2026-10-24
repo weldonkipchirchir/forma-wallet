@@ -87,3 +87,7 @@ SDK-only network origins are explicitly allowlisted and HID limited to self in P
 ## Production hosting preparation
 
 Added a shared public-environment/header policy, production postbuild artifact scan and checksum manifest, immutable Node/Caddy image pins, restricted static hosting configuration, scoped CI checks and a release/reporting policy. 93 tests pass across 16 files; production build/release checks pass; npm audit reports no known advisories. The scanner is heuristic and does not prove absence of all credentials or malicious code. Docker/Caddy and public TLS were not run locally; CI jobs and real hosting checks remain pending. No deployment was performed. See DEPLOYMENT.md and SECURITY-POLICY.md.
+
+## Follow-up review — 24 October 2026
+
+See [SECURITY-DEEP-DIVE-2026-10-24.md](SECURITY-DEEP-DIVE-2026-10-24.md) for the research-backed findings, patches, validation and remaining mainnet blockers. This is an engineering assessment, not an independent audit.

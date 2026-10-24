@@ -1,4 +1,5 @@
 import { enhanceCards } from './ui-panels';
+import { safeTokenText } from './transfer-safety';
 import { btcRecipient, solRecipient, displayUnits, type Chain } from './multichain-core';
 import { readMultiBalance, multiExplorer } from './multichain-network';
 export type PublicAccount = { name: string; address: string };
@@ -6,7 +7,7 @@ const esc = (v: string) => v.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','
 export function publicAddress(chain: Chain, address: string) { return chain === 'btc' ? btcRecipient(address) : solRecipient(address).toBase58(); }
 export function publicAccount(chain: Chain, name: string, address: string): PublicAccount {
   name = name.trim();
-  if (!name || name.length > 40 || /[\u0000-\u001f\u007f<>]/.test(name)) throw new Error('Use a name of 1–40 characters without control characters or angle brackets.');
+  if (!safeTokenText(name,40) || /[<>]/.test(name)) throw new Error('Use a name of 1–40 characters without control, direction-changing characters or angle brackets.');
   return { name, address: publicAddress(chain, address) };
 }
 export function parsePublicAccounts(chain: Chain, value: unknown): PublicAccount[] {

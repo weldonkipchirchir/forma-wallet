@@ -45,9 +45,9 @@ describe('classic SPL testnet boundaries',()=>{
   });
   it('checks Devnet genesis before loading mint metadata',async()=>{
     const calls:string[]=[];
-    vi.stubGlobal('fetch',vi.fn(async(_url:string,options:any)=>{const method=JSON.parse(options.body).method;calls.push(method);return new Response(JSON.stringify({result:method==='getGenesisHash'?SOL_GENESIS:{value:mintData()}}));}));
+    vi.stubGlobal('fetch',vi.fn(async(_url:string,options:any)=>{const method=JSON.parse(options.body).method;calls.push(method);return new Response(JSON.stringify({jsonrpc:"2.0",id:1,result:method==='getGenesisHash'?SOL_GENESIS:{value:mintData()}}));}));
     expect(await readMint(mint)).toEqual(info); expect(calls).toEqual(['getGenesisHash','getAccountInfo']);
-    vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({result:'wrong-genesis'}))));
+    vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({jsonrpc:"2.0",id:1,result:'wrong-genesis'}))));
     await expect(readMint(mint)).rejects.toThrow('Wrong network');
   });
 });

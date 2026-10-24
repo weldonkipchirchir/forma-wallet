@@ -157,8 +157,10 @@ export function mountTokens(host: HTMLElement, provider: JsonRpcProvider, wallet
       const request = pending; pending = null; $('token-review').replaceChildren();
       requireSepolia((await provider.getNetwork()).chainId);
       const populated = await signer.populateTransaction(request.tx);
+      if(!valid()) throw new Error('Wallet locked or view changed. Nothing was signed.');
+      assertFreshReview(reviewedAt);
       const signed = await signer.signTransaction(populated);
-      assertSignedMatchesReview(signed, request.tx, signer.address);
+      assertSignedMatchesReview(signed, { ...request.tx, nonce: populated.nonce }, signer.address);
       assertFreshReview(reviewedAt);
       if (!valid()) throw new Error('Wallet locked or view changed. Transfer was not broadcast.');
       const hash = keccak256(signed);

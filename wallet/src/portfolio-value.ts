@@ -1,3 +1,4 @@
+import { boundedJson } from './bounded-response';
 import { formatEther } from 'ethers';
 import type { Activity } from './activity';
 
@@ -27,7 +28,7 @@ const cache = new Map<number, number>();
 async function request(path: string, signal: AbortSignal) {
   const result = await fetch(`https://api.exchange.coinbase.com/products/ETH-USD/${path}`, { signal: AbortSignal.any([signal, AbortSignal.timeout(12000)]), credentials: 'omit', referrerPolicy: 'no-referrer' });
   if (!result.ok) throw new Error('USD price provider unavailable or rate-limited. Try refreshing later.');
-  return result.json();
+  return boundedJson(result);
 }
 export async function currentUSD(signal: AbortSignal) {
   const data = await request('ticker', signal);

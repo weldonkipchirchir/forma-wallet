@@ -1,4 +1,5 @@
 import { enhanceCards, mountEntryTabs } from './ui-panels';
+import { scrubSecretInputs } from './secret-inputs';
 import { networkAsset, networkHeading, usesNativeWorkspace, supportsPage, savedNetwork, type NetworkId } from './network-context';
 import { preserveImportedWallet, savedWalletLabel } from './wallet-migration';
 import { ledgerMarkup, mountLedger } from './ledger';
@@ -181,6 +182,7 @@ const field = (id: string) => (document.getElementById(id) as HTMLInputElement).
 const short = (address: string) => `${address.slice(0, 8)}…${address.slice(-6)}`;
 
 function lock() {
+  scrubSecretInputs(root);
   exactBalance = null;
   mobileMenuOpen = false;
   clearSecrets();
@@ -220,8 +222,9 @@ function touch() {
 }
 document.addEventListener('pointerdown', touch);
 document.addEventListener('keydown', touch);
-document.addEventListener('visibilitychange', () => { if (document.hidden && (active || busy)) lock(); });
-window.addEventListener('pagehide', () => { if (active || busy) lock(); });
+document.addEventListener('visibilitychange', () => { if(document.hidden) {scrubSecretInputs(root);clearSecrets();if(active || busy) lock();} });
+window.addEventListener('pagehide', () => { scrubSecretInputs(root);clearSecrets();if (active || busy) lock(); });
+window.addEventListener('pageshow', event=>{if(event.persisted) {scrubSecretInputs(root);clearSecrets();if(active || busy) lock();}});
 window.addEventListener('storage', event => { if ((event.key === VAULT_KEY || (active && event.key === contactsKey(active.address)) || event.key === null) && (active || busy)) lock(); });
 
 function render() {
@@ -457,6 +460,9 @@ function bind() {
   document.getElementById('portfolio-activity')?.addEventListener('click', () => navigate('activity'));
   document.getElementById('portfolio-privacy')?.addEventListener('click', () => { amountsHidden = !amountsHidden; localStorage.setItem('forma.amounts.hidden', String(amountsHidden)); updateAmountVisibility(); });
   root.querySelectorAll<HTMLInputElement>('input[type="password"]').forEach(input => {
+    input.dataset.secretInput='true';
+    input.spellcheck=false; input.setAttribute('autocapitalize','off');input.setAttribute('autocorrect','off');
+    if(input.id==='import-phrase' || input.id==='seed-passphrase') return;
     const wrapper = document.createElement('div');
     wrapper.className = 'password-field';
     input.before(wrapper);
@@ -684,8 +690,10 @@ function bind() {
         pending = null;
         document.getElementById('review')!.replaceChildren();
         const populated = await signer.populateTransaction(transaction);
+        if(version!==generation || !active) throw new Error('Wallet locked or view changed. Nothing was signed.');
+        assertFreshReview(pendingReviewedAt);
         const signed = await signer.signTransaction(populated);
-        assertSignedMatchesReview(signed, transaction, signer.address);
+        assertSignedMatchesReview(signed, { ...transaction, nonce: populated.nonce }, signer.address);
         assertFreshReview(pendingReviewedAt);
         if (version !== generation || !active) throw new Error('Wallet locked or view changed. Transfer was not broadcast.');
         const entry: TokenSubmission = { hash: keccak256(signed), contract: ZeroAddress, to: String(transaction.to), amount: String(transaction.value), symbol: 'ETH', decimals: 18, nonce: populated.nonce ?? undefined, timestamp: new Date().toISOString(), status: 'unknown' };

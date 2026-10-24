@@ -10,7 +10,7 @@ import { assertTestnet, readMultiBalance, safeNumber, solSimulate, broadcastBitc
 import { parseMultiJournal } from './multichain';
 
 const root = () => HDNodeWallet.fromPhrase('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
-const mockJson = (data: unknown) => new Response(JSON.stringify(data), { status: 200 });
+const mockJson = (data: unknown) => new Response(JSON.stringify({jsonrpc:"2.0",id:1,...data as object}), { status: 200 });
 afterEach(() => vi.unstubAllGlobals());
 describe('Bitcoin and Solana key and backup boundaries', () => {
   it('uses one primary backup and password to restore all three account addresses', async () => {
@@ -110,6 +110,12 @@ describe('Bitcoin funding and transaction binding', () => {
     const plan = bitcoinPlan(keys, keys.btcAddress, 20000n, 2, [input]);
     plan.tx.updateOutput(0, { amount: 21000n });
     expect(() => signBitcoin(plan, keys)).toThrow('review changed');
+  });
+  it('rejects a changed Bitcoin input sequence before signing',async()=>{
+    const {keys,input}=await fixture();
+    const plan=bitcoinPlan(keys,keys.btcAddress,20000n,2,[input]);
+    plan.tx.updateInput(0,{sequence:0xfffffffe});
+    expect(()=>signBitcoin(plan,keys)).toThrow('input changed');
   });
 });
 describe('Solana native transfer review', () => {

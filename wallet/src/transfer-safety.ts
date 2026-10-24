@@ -5,6 +5,7 @@ export function assertSignedMatchesReview(raw: string, review: TransactionReques
   const tx = Transaction.from(raw);
   const fail = () => { throw new Error('Signed transaction differs from the reviewed transfer. Nothing was broadcast.'); };
   if (!tx.isSigned() || tx.from?.toLowerCase() !== sender.toLowerCase()
+    || !Number.isSafeInteger(review.nonce) || Number(review.nonce)<0 || tx.nonce !== review.nonce
     || tx.chainId !== 11155111n || BigInt(review.chainId ?? 0) !== tx.chainId
     || tx.to?.toLowerCase() !== String(review.to).toLowerCase()
     || tx.value !== BigInt(review.value ?? 0) || tx.data !== (review.data ?? '0x')

@@ -1,3 +1,4 @@
+import { scrubSecretInputs } from './secret-inputs';
 export function enhanceCards(host: HTMLElement) {
   host.querySelectorAll<HTMLElement>('#transfer-panels>.card,.native-transfer-grid>.card,.asset-transfer-grid>.card,.directory-grid>.card,.asset-inventory').forEach(card=>{
     if(card.querySelector(':scope > .ui-card-banner')) return;
@@ -32,7 +33,7 @@ export function mountEntryTabs(host: HTMLElement) {
   wallets.append(saved); (saved as HTMLDetailsElement).open=true; saved.classList.add('entry-saved-list');
   const labels=[card.querySelector('#confirm')?'Create':'Unlock','Restore','Saved wallets'];
   const select=(index:number)=>{
-    panes.forEach((pane,i)=>{pane.hidden=i!==index; const button=nav.children[i] as HTMLButtonElement; button.setAttribute('aria-selected',String(i===index));button.tabIndex=i===index?0:-1;});
+    panes.forEach((pane,i)=>{if(i!==index) scrubSecretInputs(pane);pane.hidden=i!==index; const button=nav.children[i] as HTMLButtonElement; button.setAttribute('aria-selected',String(i===index));button.tabIndex=i===index?0:-1;});
   };
   panes.forEach((pane,index)=>{
     pane.className='entry-pane'; pane.id=`entry-pane-${index}`; pane.setAttribute('role','tabpanel');pane.setAttribute('aria-labelledby',`entry-tab-${index}`);

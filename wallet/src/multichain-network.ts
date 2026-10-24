@@ -1,6 +1,7 @@
 import { hex, base64 } from '@scure/base';
 import { BTC_GENESIS, SOL_GENESIS, verifyUtxo, type MultiKeys, type Chain } from './multichain-core';
 import { bitcoinMovements, solanaMovements, type Movement } from './network-amounts';
+import { boundedText } from './bounded-response';
 export const BTC_API = 'https://blockstream.info/testnet/api';
 export const SOL_API = 'https://api.devnet.solana.com';
 export function safeNumber(value: unknown): number {
@@ -8,15 +9,13 @@ export function safeNumber(value: unknown): number {
   return value;
 }
 async function request(url: string, init?: RequestInit): Promise<string> {
-  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(20000), referrerPolicy: 'no-referrer' });
+  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(20000), referrerPolicy: 'no-referrer',credentials:'omit',redirect:'error' });
   if (!response.ok) throw new Error('Testnet service unavailable or rate limited. Try refreshing later.');
-  const text = await response.text();
-  if (text.length > 2000000) throw new Error('Testnet response is too large.');
-  return text;
+  return boundedText(response);
 }
 export async function solRpc(method: string, params: unknown[] = []): Promise<any> {
   const data = JSON.parse(await request(SOL_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) }));
-  if (data.error || data.result === undefined) throw new Error('Solana Devnet request failed. Check balance, fee and service availability.');
+  if (data?.jsonrpc!=='2.0' || data.id!==1 || data.error!==undefined || !Object.prototype.hasOwnProperty.call(data,'result')) throw new Error('Solana Devnet request failed. Check balance, fee and service availability.');
   return data.result;
 }
 export async function assertTestnet(chain: Chain) {

@@ -113,11 +113,11 @@ export function bitcoinPlan(keys: MultiKeys, to: string, amount: bigint, rate: n
 }
 export function signBitcoin(plan: BitcoinPlan, keys: MultiKeys) {
   // Bind every output and input to the reviewed plan before signing.
-  if (plan.tx.inputsLength !== plan.inputs.length || plan.tx.outputsLength !== (plan.change ? 2 : 1)) throw new Error('Bitcoin review changed.');
+  if (plan.tx.version!==2 || plan.tx.lockTime!==0 || plan.tx.inputsLength !== plan.inputs.length || plan.tx.outputsLength !== (plan.change ? 2 : 1)) throw new Error('Bitcoin review changed.');
   for (let i = 0; i < plan.inputs.length; i++) {
     const row = plan.inputs[i]; verifyUtxo(row.raw, row.txid, row.vout, row.value, keys.btcScript);
     const input = plan.tx.getInput(i);
-    if (!input.txid || hex.encode(input.txid) !== row.txid || input.index !== row.vout) throw new Error('Bitcoin input changed.');
+    if (!input.txid || hex.encode(input.txid) !== row.txid || input.index !== row.vout || input.sequence!==0xffffffff) throw new Error('Bitcoin input changed.');
   }
   if (plan.tx.getOutputAddress(0, btc.TEST_NETWORK) !== plan.to || plan.tx.getOutput(0).amount !== plan.amount || plan.tx.fee !== plan.fee) throw new Error('Bitcoin review changed.');
   if (plan.change && (plan.tx.getOutputAddress(1, btc.TEST_NETWORK) !== keys.btcAddress || plan.tx.getOutput(1).amount !== plan.change)) throw new Error('Bitcoin change address changed.');

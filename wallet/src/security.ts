@@ -55,4 +55,13 @@ export function validateKeystore(json: string) {
     if (!bounded(params.c, 1000000)) throw new Error('Keystore work factor is unsupported.');
   } else throw new Error('Unsupported keystore key derivation.');
   if (params.dklen !== 32) throw new Error('Unsupported keystore key length.');
+  if(data.address !== undefined && !hex(data.address,20)) throw new Error('Malformed keystore address.');
+  const mnemonic=data['x-ethers'];
+  if(mnemonic!==undefined) {
+    const path=mnemonic?.path;
+    if(mnemonic?.version!=='0.1' || !hex(mnemonic.mnemonicCounter,16)
+      || typeof mnemonic.mnemonicCiphertext!=='string' || ![16,20,24,28,32].some(bytes=>hex(mnemonic.mnemonicCiphertext,bytes))
+      || (mnemonic.locale!==undefined && mnemonic.locale!=='en')
+      || (path!==undefined && (typeof path!=='string' || path.length>150 || !/^m(?:\/\d{1,10}'?){1,10}$/.test(path) || path.split('/').slice(1).some((part:string)=>Number(part.replace("'",''))>0x7fffffff)))) throw new Error('Malformed or unsupported encrypted recovery metadata.');
+  }
 }

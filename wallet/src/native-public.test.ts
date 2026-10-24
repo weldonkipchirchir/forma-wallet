@@ -12,6 +12,7 @@ describe('native public accounts',()=>{
   });
   it('rejects unsafe names, malformed records and duplicates',()=>{
     expect(()=>publicAccount('sol','<script>',sol)).toThrow();
+    expect(()=>publicAccount('sol','Trusted\u202e recipient',sol)).toThrow();
     expect(parsePublicAccounts('sol',[null,{name:'A',address:sol},{name:'B',address:sol},{name:'X',address:btc}])).toEqual([{name:'A',address:sol}]);
   });
   it('separates networks, contacts by owner and watch accounts from contacts',()=>{

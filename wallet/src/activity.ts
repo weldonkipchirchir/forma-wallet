@@ -1,3 +1,4 @@
+import { boundedJson } from './bounded-response';
 export type Activity = {
   hash: string; from: string; to: string; value: string; timestamp: string;
   status: 'pending' | 'confirmed' | 'failed'; kind: 'transaction' | 'internal'; id: string;
@@ -33,6 +34,6 @@ export async function fetchActivity(address: string, internal: boolean, cursor?:
   Object.entries(cursor ?? {}).forEach(([k, v]) => query.set(k, String(v)));
   const response = await fetch(`https://eth-sepolia.blockscout.com/api/v2/addresses/${address}/${path}?${query}`, { signal: AbortSignal.timeout(15000), referrerPolicy: 'no-referrer' });
   if (!response.ok) throw new Error('History service is unavailable. Your cached activity is still available.');
-  const data = await response.json();
+  const data = await boundedJson(response);
   return { items: parseActivity(data.items, internal), cursor: data.next_page_params as Record<string, string | number> | null };
 }

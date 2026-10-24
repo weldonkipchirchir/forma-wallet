@@ -16,6 +16,8 @@ export function securityHeaders(rpc, production = false) {
     'Content-Security-Policy': `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ${production ? '' : 'ws://127.0.0.1:* ws://localhost:* '}${rpc.origin} https://eth-sepolia.blockscout.com https://data-api.binance.vision https://api.exchange.coinbase.com https://manager.api.live.ledger.com https://global.api.prd.ledger.com https://blockstream.info https://api.devnet.solana.com; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`,
     'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), hid=(self)',
+    'Cross-Origin-Opener-Policy':'same-origin',
+    'Cross-Origin-Resource-Policy':'same-origin',
     ...(production ? { 'Strict-Transport-Security': 'max-age=86400' } : {}),
   };
 }
