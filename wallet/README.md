@@ -2,7 +2,7 @@
 
 Standalone browser wallet. The existing event app is unchanged.
 
-One primary wallet unlocks Ethereum Sepolia, Bitcoin Testnet3 and Solana Devnet accounts from the same recovery phrase and encrypted backup. The Network selector keeps Overview, holdings, transfers, Activity and Market on the chosen network across navigation and reloads. Older separate BTC/SOL vaults are preserved in normal Saved wallets; use the standard unlock, encrypted-backup or recovery-phrase restore flow. See [MULTICHAIN.md](MULTICHAIN.md) for recovery, migration, supported paths and limitations. The USD portfolio estimate remains Ethereum-specific.
+One primary wallet unlocks Ethereum Sepolia, Bitcoin Testnet3 and Solana Devnet accounts from the same recovery phrase and encrypted backup, and can hold several Ethereum accounts derived from that phrase or imported as standalone private keys. The Network selector keeps Overview, holdings, transfers, Activity and Market on the chosen network across navigation and reloads. Older separate BTC/SOL vaults are preserved in normal Saved wallets; use the standard unlock, encrypted-backup or recovery-phrase restore flow. See [MULTICHAIN.md](MULTICHAIN.md) for recovery, migration, supported paths and limitations. The USD portfolio estimate remains Ethereum-specific.
 
 ## Run
 
@@ -21,12 +21,33 @@ Open the localhost URL Vite prints. `npm run build` typechecks and builds; `npm 
 1. Create a fresh test wallet with a password of at least 12 characters.
 2. Download the encrypted JSON backup. Keep its password separately; there is no password reset.
 3. Use the receive address on Ethereum Sepolia only. Acquire test ETH through a Sepolia faucet independently; the app does not sell tokens.
-4. Enter a literal recipient address and amount, review the maximum fee, then explicitly confirm.
+4. Enter a literal recipient address and amount, review the fee preset, pinned nonce and worst-case fee, then explicitly confirm.
 5. Open Activity to sync incoming and outgoing direct transactions and internal ETH transfers from Sepolia Blockscout. Activity is cached per address across reloads and locks. Load older activity to paginate; the local cache retains up to 1,000 records. Tokens are not included. Check the explorer for complete on-chain activity and final status.
 6. Lock and unlock to test local recovery. Recovery & import lets you reveal an available recovery phrase after password verification (hidden automatically after 30 seconds), import encrypted JSON, or import a BIP-39 phrase. Phrase import uses m/44'/60'/0'/0/index, index 0 by default; optional BIP-39 passphrases are supported. Other derivation paths and non-English wordlists are not supported.
 7. Imports preserve the previously active encrypted wallet. Select it under Saved wallets and unlock it with its own password to switch back. Raw-private-key JSON backups may not contain a recovery phrase; keep their encrypted backup instead.
+8. Manage several accounts inside the unlocked wallet under Recovery & import > Accounts: derive the next phrase-backed account, import a 64-character private key, rename accounts, reveal the active private key after password re-entry, or download a per-account encrypted backup. The header account selector switches accounts without re-entering the password while the wallet stays unlocked.
 
-When importing with a non-empty BIP-39 passphrase, the standard ethers JSON backup preserves the account key but does not include mnemonic metadata. Phrase reveal will therefore be unavailable for that backup. Keep the original phrase and BIP-39 passphrase separately; the encrypted JSON and local password still recover the imported account.
+When importing with a non-empty BIP-39 passphrase, the standard ethers JSON backup preserves the account key but does not include mnemonic metadata. Phrase reveal will therefore be unavailable for that backup. Keep the original phrase and BIP-39 passphrase separately; the encrypted JSON and local password still recover the imported account. Because Forma does not retain the passphrase, additional accounts cannot be derived from that wallet; import each private key instead.
+
+## Multiple accounts
+
+Overview's header account selector and Recovery & import > Accounts manage several Ethereum accounts inside one unlocked wallet. Phrase-backed accounts are derived from this wallet's recovery phrase at `m/44'/60'/0'/0/index`; the next unused index is suggested, with indexes 0-100 and up to 100 accounts per wallet. Activity, contacts, tracked tokens, submission journals and backup status remain keyed by address, so switching accounts never mixes their local records.
+
+Imported private keys are standalone: they share this wallet's local password and unlock with the same session, but the recovery phrase does not restore them and another account's encrypted backup does not contain them. Download each imported account's backup from the account list. Entered values must be 64 hexadecimal characters; the importer rejects recovery phrases. Unlocked keys, including imported ones, exist only in JavaScript memory until lock.
+
+The account registry (`forma.sepolia.accounts.v1`) stores addresses, account kinds, derivation indexes and nicknames unencrypted. Each account's encrypted keystore is stored separately (`forma.sepolia.account.vault.v1:<address>`); the active account is also mirrored at `forma.sepolia.vault.v1` for compatibility. Unlocking a pre-existing single vault migrates it idempotently into a group without re-encrypting it. Changing the wallet password re-encrypts every account in the group; if a legacy copy uses a different password, switching to it falls back to the normal locked unlock for that account.
+
+Account backups cover one account each. Phrase-backed accounts can additionally be re-derived from the recovery phrase; imported keys cannot. The recovery phrase and per-account encrypted backups remain the only recovery paths.
+
+## Fees, nonces and replacements
+
+The ETH review shows a pinned nonce and three EIP-1559 fee presets derived from the RPC's current suggestion: Economy (80% priority tip), Suggested (RPC values) and Priority (150% priority tip and a 30% higher fee cap). These are Forma estimates, not MetaMask's algorithm and not a promise of confirmation time. The worst-case fee is recalculated when the preset changes, and an unaffordable preset disables confirmation.
+
+Signing rechecks the account's pending nonce. If it changed, or another unconfirmed locally recorded transfer already occupies the reviewed nonce, signing stops and the transfer must be reviewed again. New ETH transfers store the gas limit, both fee fields and the nonce in the local journal so they can later be replaced.
+
+Activity's locally submitted ETH rows expose Speed up and Cancel while a transfer is unconfirmed. Both build a new type-2 transaction at the original nonce: speed-up keeps the recipient/value, while cancel sends 0 ETH to your own address and still costs gas. Forma raises both fee fields by at least 12.5%, rounded up; this threshold is Forma policy, not an established MetaMask rule. Only one transaction can be mined per nonce, so the original can still win. Each replacement is a new journal record linked to the original, and no automatic retry occurs.
+
+Replacement is limited to native ETH records with recorded fee details; older records and token transfers cannot be rebuilt safely. There is also no cross-tab signing lock, so separate open tabs can still prepare competing nonces.
 
 ## Design and limits
 
@@ -47,7 +68,7 @@ Appearance is available in the header while locked or unlocked: System follows d
 - Desktop sidebar collapses to an icon rail and remembers that preference. Mobile uses a menu drawer closed with its backdrop or Escape. Navigation has accessible labels, keyboard focus indicators and reduced-motion styles.
 - Activity supports All, Received and Sent filters. Page headings and breadcrumbs follow the selected view; long-running actions show working feedback.
 
-- ethers creates and encrypts wallets with its standard JSON keystore encryption. Only encrypted JSON is persisted in localStorage. No private key or password is sent to a backend.
+- ethers creates and encrypts wallets with its standard JSON keystore encryption. Private keys are persisted only inside encrypted keystores. Account metadata (addresses, kinds, indexes, nicknames), journals, contacts, preferences and cached activity are stored unencrypted in localStorage. No private key or password is sent to a backend.
 - Unlocked keys exist in JavaScript memory. Locking drops application references but cannot guarantee memory erasure in a garbage-collected browser.
 - The app locks on tab hiding and after five minutes idle. Reloading starts locked.
 - Only chain ID 11155111 is allowed. Review validates address, precision, balance and maximum gas. Blockchain node responses are still a trust dependency.
@@ -95,7 +116,7 @@ See [SECURITY-RESEARCH-2026-10-22.md](SECURITY-RESEARCH-2026-10-22.md) for the w
 
 Under Recovery & import, Verify your backup decrypts an uploaded encrypted JSON and checks that its address matches the unlocked wallet. It does not import or replace that wallet. Select a backup under 100 KB and enter that backup's password.
 
-Change wallet password requires the current password and a matching new password of at least 12 characters. It re-encrypts the same account, updates its saved-wallet entry and locks the wallet. Unlock with the new password, download a new backup from Overview, then verify that file. Older downloaded backups still use their original passwords. Other saved wallets keep their passwords. A password change does not revoke a compromised seed/private key or old backup.
+Change wallet password requires the current password and a matching new password of at least 12 characters. It re-encrypts every account in the current wallet group (imported keys included), updates saved-wallet entries and locks the wallet. Unlock with the new password, download a new backup from Overview, then verify that file. Older downloaded backups still use their original passwords. Other saved wallets keep their passwords. A password change does not revoke a compromised seed/private key or old backup.
 
 Tokens includes Submitted token transfers. Before broadcast, the app stores the signed transaction's hash and public transfer details (not signed bytes or keys) in a wallet-specific journal. If local persistence fails, broadcast is blocked. An ambiguous network response retains Unknown; an accepted response becomes Pending. Opening Tokens or clicking Refresh history reconciles records against RPC receipts. Missing receipts are never treated as failed; records can return to Unknown if a receipt disappears. There is no automatic resubmission, replacement or cancellation. Inspect the explorer before retrying. Browser-data deletion removes this local journal; it is not an onchain record or independent proof of finality.
 
@@ -124,7 +145,7 @@ ETH now uses the same persist-before-broadcast helper as token sends. The app re
 
 Activity shows Locally submitted ETH; Tokens shows Submitted token transfers. Refresh activity/history to inspect receipts. Success/failure receipts show confirmation counts supplied by the RPC, not a finality guarantee. If a receipt disappears, status may revert to Pending or Unknown. If the hash is absent and the latest mined account nonce exceeds the recorded nonce, the UI flags possible replacement or RPC inconsistency; it cannot identify a replacement hash. A hash absent from this RPC after ten minutes is only Not currently seen, never proven dropped. Verify the explorer and all account activity before manually sending again.
 
-Receipt checking is limited to four records concurrently and refresh merges preserve newer records written while requests were in flight. Cross-tab localStorage writes are not transactional. Clearing browser storage removes local records. There is no automatic cancellation, speed-up, replacement search across blocks, hardware signing or independent chain-finality verification. Legacy records without nonce metadata can still be checked for receipts but cannot receive nonce-use hints.
+Receipt checking is limited to four records concurrently and refresh merges preserve newer records written while requests were in flight. Cross-tab localStorage writes are not transactional. Clearing browser storage removes local records. There is no automatic cancellation, speed-up or replacement search across blocks; same-nonce speed-up/cancel is a manual native-ETH action. Token replacements, hardware signing and independent chain-finality verification are unavailable. Legacy records without nonce metadata can still be checked for receipts but cannot receive nonce-use hints or be replaced.
 
 Validation on 23 October 2026: 71 tests across 13 files, including disposable signed fixtures and mocked broadcasts for timeouts, storage failure, session/review invalidation, post-handoff locking, reload persistence, receipt loss, confirmation counts and nonce conflicts. No user's wallet was used to sign or broadcast during these tests; a live funded disposable-wallet network interruption exercise remains outstanding.
 
@@ -160,8 +181,19 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for the reviewed Caddy/Docker configuration, 
 
 ## GitHub Actions and Vercel
 
-Vercel static hosting is configured in vercel.json with test/build/audit gates and production headers. Follow [VERCEL.md](VERCEL.md): the current repository keeps wallet/ as the Vercel Root Directory, Node 24, and Other framework preset. GitHub Actions exposes Tests, build and security plus Caddy container and hosting checks under Wallet checks. Local validation: 94 tests and production release build pass. No push or deployment has been made.
+Vercel static hosting is configured in vercel.json with test/build/audit gates and production headers. Follow [VERCEL.md](VERCEL.md): the current repository keeps wallet/ as the Vercel Root Directory, Node 24, and Other framework preset. GitHub Actions exposes Tests, build and security plus Caddy container and hosting checks under Wallet checks. Local validation on 21 November 2026: 180 tests across 32 files and the production release build pass. No push or deployment has been made.
 
 ### Solana SPL tokens
 
 Select Solana Devnet, then Tokens. Add a classic SPL mint address, refresh the associated-account balance, and review transfers to a wallet with an existing associated token account. Mint identity, decimals, account ownership and state are validated. Fees remain in devSOL. Token-2022, recipient account creation and BTC/SOL Ledger signing are not implemented. See MULTICHAIN.md for transfer safeguards and remaining funded tests.
+
+### Additional EVM networks and tokens
+
+The network selector also includes Base Sepolia (84532), Arbitrum Sepolia (421614), OP Sepolia (11155420), and Robinhood Chain Testnet (46630). These use the selected Ethereum account address and encrypted backup. Each network has its own balances, imported ERC-20 contracts, and local submission journal, scoped by chain ID and account. ETH pays gas on these four testnets.
+
+Select a network, open Tokens, paste a standard ERC-20 contract deployed on that network, and choose Import token. Up to 25 contracts can be tracked per account/network. Metadata and balances are read from the contract. Symbols such as USDT or USDC are unverified labels; a test token is not redeemable mainnet stablecoin. Native SOL remains on Solana; wrapped SOL on an EVM chain is a separate contract. Adding a token does not move or bridge funds.
+
+The additional EVM workspace supports native ETH and standard ERC-20 transfer reviews, receive QR codes, hidden balances and locally submitted transfer status. Incoming/full network history is linked through the explorer. Sending uses a per-chain/account Web Lock and blocks while a local submission is pending or uncertain. Wrong-chain RPC responses and signed bytes that differ from the review are rejected. L2 chains can charge data fees beyond execution-gas estimates. Hardware signing, contacts/watch-only, swaps, bridges, token discovery, nonstandard tokens and mainnet are not enabled on these added networks.
+
+Official network references: [Base](https://docs.base.org), [Arbitrum](https://docs.arbitrum.io/arbitrum-essentials/reference/node-providers), [Optimism](https://optimism.io/blog/op-testnets-are-migrating-from-op-goerli-to-op-sepolia), [Robinhood Chain](https://docs.robinhood.com/chain/add-network-to-wallet/).
+

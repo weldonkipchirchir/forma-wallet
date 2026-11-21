@@ -205,3 +205,33 @@ header{position:sticky;top:0;z-index:15;background:#fafbf8f5;backdrop-filter:blu
 :root{--form-error-ink:#a51d2d;--form-error-bg:#fff0f1;--form-error-border:#e7a3ab}[data-theme=dark]{--form-error-ink:#ffb4bd;--form-error-bg:#381e25;--form-error-border:#914550}
 form .form-error[role=alert]{color:var(--form-error-ink);background:var(--form-error-bg);border:1px solid var(--form-error-border);border-radius:10px;padding:12px 14px;margin:10px 0;font-size:13px;line-height:1.5;font-weight:600}
 form input[aria-invalid=true]{border-color:var(--form-error-ink)!important}
+.account-list{display:grid;gap:10px;margin:16px 0}
+.account-row{display:flex;align-items:flex-start;gap:14px;padding:16px;border:1px solid var(--ui-border);border-radius:14px;background:var(--ui-soft)}
+.account-row.is-current{border-color:var(--ui-accent);box-shadow:0 0 0 2px #8ca86b14}
+.account-avatar{display:grid;place-items:center;width:38px;height:38px;flex-shrink:0;border-radius:12px;border:1px solid var(--ui-border);background:var(--ui-surface);font-size:20px}
+.account-identity{flex:1;min-width:0}
+.account-identity strong{display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap}
+.account-identity code{display:block;font-size:10px;color:var(--ui-muted);overflow-wrap:anywhere;margin-top:7px}
+.account-identity .hint{margin:6px 0 0}
+.account-actions{display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex-shrink:0}
+.account-actions .text-button{font-size:11px;padding:5px 7px}
+.account-manage-link{font-size:11px;padding:8px 0;margin-top:10px}
+.account-form-disclosure{border:1px solid var(--ui-border);border-radius:12px;padding:0 16px;margin-top:12px;background:var(--ui-card,var(--ui-surface))}
+.account-form-disclosure>summary{cursor:pointer;font-size:12px;font-weight:600;padding:14px 0}
+.account-form-disclosure[open]{padding-bottom:16px}
+.account-form-disclosure form{margin-top:8px;max-width:600px}
+.private-key{display:block;overflow-wrap:anywhere;background:var(--ui-soft);border:1px solid var(--ui-border);border-radius:10px;padding:14px;font-size:12px;line-height:1.8;margin:12px 0}
+#settings-panel #key-display{max-width:600px}
+@media(max-width:650px){.account-row{flex-wrap:wrap}.account-actions{flex-direction:row;width:100%;justify-content:flex-end;margin-top:6px}}
+
+/* Fee selection and same-nonce replacements. */
+.review #fee-choice{margin:8px 0 10px}
+.replacement-review{margin:18px 0;padding:18px;border:1px solid var(--ui-border);border-radius:14px;background:var(--ui-soft)}
+.replacement-review p{font-size:12px;margin:7px 0}
+.replacement-review .check{margin:14px 0}
+.replacement-review button{margin-top:4px}
+.submission-actions{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;margin-top:8px}
+.submission-actions button{font-size:11px;padding:7px 9px}
+@media(max-width:650px){.submission-actions{justify-content:flex-start}.replacement-review{padding:14px}}
+
+#evm-notice[role=alert]{color:var(--form-error-ink);background:var(--form-error-bg);border:1px solid var(--form-error-border);border-radius:10px;padding:12px 14px;font-weight:600}

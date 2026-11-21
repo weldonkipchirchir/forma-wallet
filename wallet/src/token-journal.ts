@@ -1,4 +1,5 @@
-export type TokenSubmission = { hash: string; contract: string; to: string; amount: string; decimals: number; symbol: string; timestamp: string; status: 'pending' | 'confirmed' | 'failed' | 'unknown'; nonce?: number; confirmations?: number; observation?: 'not-seen' | 'nonce-used' | 'rpc-unavailable' };
+export type SubmissionIntent = 'transfer' | 'speed-up' | 'cancel';
+export type TokenSubmission = { hash: string; contract: string; to: string; amount: string; decimals: number; symbol: string; timestamp: string; status: 'pending' | 'confirmed' | 'failed' | 'unknown'; nonce?: number; confirmations?: number; observation?: 'not-seen' | 'nonce-used' | 'rpc-unavailable'; gasLimit?: string; maxFeePerGas?: string; maxPriorityFeePerGas?: string; replaces?: string; replacedBy?: string; intent?: SubmissionIntent };
 export const journalKey = (address: string) => `forma.sepolia.token-submissions.v1:${address.toLowerCase()}`;
 export const nativeJournalKey = (address: string) => `forma.sepolia.eth-submissions.v1:${address.toLowerCase()}`;
 export function parseJournal(value: unknown): TokenSubmission[] {
@@ -14,7 +15,13 @@ export function parseJournal(value: unknown): TokenSubmission[] {
     && ['pending', 'confirmed', 'failed', 'unknown'].includes(r.status)
     && (r.nonce === undefined || Number.isSafeInteger(r.nonce) && r.nonce >= 0)
     && (r.confirmations === undefined || Number.isSafeInteger(r.confirmations) && r.confirmations >= 0)
-    && (r.observation === undefined || ['not-seen', 'nonce-used', 'rpc-unavailable'].includes(r.observation)));
+    && (r.observation === undefined || ['not-seen', 'nonce-used', 'rpc-unavailable'].includes(r.observation))
+    && (r.gasLimit === undefined || typeof r.gasLimit === 'string' && /^\d{1,78}$/.test(r.gasLimit))
+    && (r.maxFeePerGas === undefined || typeof r.maxFeePerGas === 'string' && /^\d{1,78}$/.test(r.maxFeePerGas))
+    && (r.maxPriorityFeePerGas === undefined || typeof r.maxPriorityFeePerGas === 'string' && /^\d{1,78}$/.test(r.maxPriorityFeePerGas))
+    && (r.replaces === undefined || typeof r.replaces === 'string' && /^0x[0-9a-f]{64}$/i.test(r.replaces))
+    && (r.replacedBy === undefined || typeof r.replacedBy === 'string' && /^0x[0-9a-f]{64}$/i.test(r.replacedBy))
+    && (r.intent === undefined || ['transfer', 'speed-up', 'cancel'].includes(r.intent)));
 }
 export async function reconcileJournal(rows: TokenSubmission[], getReceipt: (hash: string) => Promise<{ status: number | null } | null>) {
   return Promise.all(rows.map(async row => {

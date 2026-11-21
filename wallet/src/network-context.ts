@@ -1,15 +1,19 @@
-export type NetworkId = 'eth' | 'btc' | 'sol';
+import { evmNetworks, isAdditionalEvm, type EvmNetworkId } from './evm-networks';
+export type NetworkId = 'eth' | 'btc' | 'sol' | EvmNetworkId;
 export const networkAssets = {
   eth: { name: 'Ethereum', symbol: 'ETH', pair: 'ETHUSDT', network: 'Ethereum Sepolia' },
   btc: { name: 'Bitcoin', symbol: 'BTC', pair: 'BTCUSDT', network: 'Bitcoin Testnet3' },
   sol: { name: 'Solana', symbol: 'SOL', pair: 'SOLUSDT', network: 'Solana Devnet' },
 } as const;
-export function networkAsset(id: NetworkId) { return networkAssets[id]; }
-export function savedNetwork(value: string | null): NetworkId { return value === 'btc' || value === 'sol' ? value : 'eth'; }
+export function networkAsset(id: NetworkId) { return isAdditionalEvm(id) ? { ...evmNetworks[id], symbol: 'ETH', pair: 'ETHUSDT' } : networkAssets[id]; }
+export const networkIds: NetworkId[] = ['eth', 'btc', 'sol', ...Object.keys(evmNetworks) as EvmNetworkId[]];
+export function isNetworkId(value: string): value is NetworkId { return value === 'eth' || value === 'btc' || value === 'sol' || isAdditionalEvm(value); }
+export function savedNetwork(value: string | null): NetworkId { return value && isNetworkId(value) ? value : 'eth'; }
 export function usesNativeWorkspace(id: NetworkId, page: string) {
-  return id !== 'eth' && (['overview', 'portfolio', 'transfer', 'activity'].includes(page) || (id === 'sol' && page === 'tokens'));
+  return (id === 'btc' || id === 'sol') && (['overview', 'portfolio', 'transfer', 'activity'].includes(page) || (id === 'sol' && page === 'tokens'));
 }
 export function supportsPage(id: NetworkId, page: string) {
+  if (isAdditionalEvm(id)) return ['overview', 'portfolio', 'transfer', 'activity', 'tokens', 'settings'].includes(page);
   return id === 'eth' || (id === 'sol' && page === 'tokens') || !['tokens', 'ledger'].includes(page);
 }
 export function networkHeading(id: NetworkId, page: string) {
