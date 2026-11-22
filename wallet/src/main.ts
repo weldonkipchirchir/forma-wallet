@@ -1,4 +1,5 @@
 import { assetLogo } from './asset-display';
+import { installHoldingsControls } from './holdings-controls';
 import { enhanceCards, mountEntryTabs } from './ui-panels';
 import { scrubSecretInputs } from './secret-inputs';
 import { networkAsset, networkHeading, usesNativeWorkspace, supportsPage, savedNetwork, networkIds, isNetworkId, type NetworkId } from './network-context';
@@ -1204,6 +1205,7 @@ function bind() {
 try { if (preserveImportedWallet(localStorage, WALLET_LIST)) notice = 'An older wallet was preserved in Saved wallets. Use the normal wallet switch and unlock flow.'; } catch { notice = 'An older wallet could not be added to Saved wallets. Its original encrypted storage is preserved.'; }
 render();
 installSelectPickers(root);
+installHoldingsControls(root);
 root.addEventListener('click', event => {
   if ((event.target as HTMLElement).closest('[data-open-tokens]') && active && supportsPage(selectedNetwork, 'tokens')) navigate('tokens');
 });
