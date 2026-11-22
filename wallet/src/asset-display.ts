@@ -2,7 +2,7 @@ import { boundedJson } from './bounded-response';
 import './asset-display.css';
 
 const escape = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
-const icons = new Set(['ETH', 'BTC', 'SOL', 'TRX', 'POL', 'AVAX', 'USDT', 'USDC']);
+const icons = new Set(['ETH', 'BTC', 'SOL', 'TRX', 'POL', 'AVAX', 'BNB', 'USDT', 'USDC']);
 /** Never infer an issuer's identity from an imported contract's symbol. */
 export function assetLogo(symbol: string, verified = false) {
   const id = verified && icons.has(symbol) ? symbol.toLowerCase() : 'token';
@@ -34,7 +34,7 @@ export function assetTable(rows: AssetDisplayRow[], hidden: boolean, allowTokens
     <div class="holdings-empty" data-holdings-empty ${rows.length ? 'hidden' : ''}><strong>No matching assets</strong><p>Clear your filters or use Tokens to find and import holdings on this network.</p></div>
     <div class="holdings-footer" ${allowTokens ? '' : 'hidden'}><span class="hint">Missing an asset? Find holdings or import its contract on Tokens.</span><button type="button" class="quiet" data-open-tokens>Manage tokens</button></div></div>`;
 }
-const products: Record<string, string> = { ETH: 'ETH-USD', BTC: 'BTC-USD', SOL: 'SOL-USD', TRX: 'TRX-USD', POL: 'POL-USD', AVAX: 'AVAX-USD', USDT: 'USDT-USD' };
+const products: Record<string, string> = { ETH: 'ETH-USD', BTC: 'BTC-USD', SOL: 'SOL-USD', TRX: 'TRX-USD', POL: 'POL-USD', AVAX: 'AVAX-USD', BNB: 'BNB-USD', USDT: 'USDT-USD', USDC: 'USDC-USD' };
 export async function readNativeReference(symbol: string, signal: AbortSignal): Promise<number> {
   const product = products[symbol];
   if (!product) throw new Error('No trusted native reference configured.');

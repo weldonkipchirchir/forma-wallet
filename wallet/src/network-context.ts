@@ -11,6 +11,7 @@ export function networkAsset(id: NetworkId) { return isAdditionalEvm(id) ? { ...
 export const networkIds: NetworkId[] = ['eth', 'btc', 'sol', 'sol-mainnet', 'tron', ...Object.keys(evmNetworks) as EvmNetworkId[]];
 export function isNetworkId(value: string): value is NetworkId { return value === 'eth' || value === 'btc' || value === 'sol' || value === 'sol-mainnet' || value === 'tron' || isAdditionalEvm(value); }
 export function savedNetwork(value: string | null): NetworkId { return value && isNetworkId(value) ? value : 'eth'; }
+export function isMainnetNetwork(id: NetworkId) { return id === 'sol-mainnet' || (isAdditionalEvm(id) && !evmNetworks[id].testnet); }
 export function usesNativeWorkspace(id: NetworkId, page: string) {
   return (id === 'btc' || id === 'sol') && (['overview', 'portfolio', 'transfer', 'activity'].includes(page) || (id === 'sol' && page === 'tokens'));
 }
@@ -18,7 +19,7 @@ export function supportsPage(id: NetworkId, page: string) {
   if (page === 'networks' || page === 'cards') return true;
   if (id === 'sol-mainnet') return ['overview','portfolio','transfer','tokens','activity','market','settings'].includes(page);
   if (id === 'tron') return ['overview', 'portfolio', 'transfer', 'tokens', 'activity', 'market', 'settings'].includes(page);
-  if (isAdditionalEvm(id)) return ['overview', 'portfolio', 'transfer', 'activity', 'tokens', 'settings'].includes(page);
+  if (isAdditionalEvm(id)) return ['overview', 'portfolio', 'transfer', 'activity', 'tokens', 'market', 'settings'].includes(page);
   return id === 'eth' || (id === 'sol' && page === 'tokens') || !['tokens', 'ledger'].includes(page);
 }
 export function networkHeading(id: NetworkId, page: string) {

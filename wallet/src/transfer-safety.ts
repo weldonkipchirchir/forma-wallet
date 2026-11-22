@@ -3,6 +3,7 @@ import { getAddress, ZeroAddress, Transaction, type TransactionRequest } from 'e
 // Decode the actual bytes going to the RPC, rather than trusting population/signing.
 export function assertSignedMatchesReview(raw: string, review: TransactionRequest, sender: string, expectedChain = 11155111n) {
   const tx = Transaction.from(raw);
+  const expectedType = review.type ?? 2;
   const fail = () => { throw new Error('Signed transaction differs from the reviewed transfer. Nothing was broadcast.'); };
   if (!tx.isSigned() || tx.from?.toLowerCase() !== sender.toLowerCase()
     || !Number.isSafeInteger(review.nonce) || Number(review.nonce)<0 || tx.nonce !== review.nonce
@@ -10,9 +11,8 @@ export function assertSignedMatchesReview(raw: string, review: TransactionReques
     || tx.to?.toLowerCase() !== String(review.to).toLowerCase()
     || tx.value !== BigInt(review.value ?? 0) || tx.data !== (review.data ?? '0x')
     || tx.gasLimit !== BigInt(review.gasLimit ?? 0)
-    || tx.maxFeePerGas !== BigInt(review.maxFeePerGas ?? 0)
-    || tx.maxPriorityFeePerGas !== BigInt(review.maxPriorityFeePerGas ?? 0)
-    || tx.type !== 2 || (tx.accessList?.length ?? 0) !== 0
+    || (expectedType === 0 ? tx.gasPrice !== BigInt(review.gasPrice ?? 0) : tx.maxFeePerGas !== BigInt(review.maxFeePerGas ?? 0) || tx.maxPriorityFeePerGas !== BigInt(review.maxPriorityFeePerGas ?? 0))
+    || ![0,2].includes(Number(expectedType)) || tx.type !== expectedType || (tx.accessList?.length ?? 0) !== 0
     || (tx.authorizationList?.length ?? 0) !== 0) fail();
 }
 

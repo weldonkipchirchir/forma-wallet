@@ -11,7 +11,7 @@ const owner = '0x' + '11'.repeat(20), other = '0x' + '22'.repeat(20);
 const store = (data: string | null) => ({ getItem: () => data });
 const row: TokenSubmission = { hash: '0x' + 'aa'.repeat(32), to: other, contract: '0x' + '00'.repeat(20), amount: '1', decimals: 18, symbol: 'ETH', status: 'unknown', timestamp: '2026-11-21T00:00:00Z', nonce: 0 };
 describe('chain-scoped EVM assets', () => {
-  it('registers only approved testnets and keeps native-chain routes separate', () => {
+  it('registers only approved networks and keeps native-chain routes separate', () => {
     for (const [id, network] of Object.entries(evmNetworks)) {
       expect(isAdditionalEvm(id)).toBe(true);
       expect(savedNetwork(id)).toBe(id);
@@ -20,7 +20,7 @@ describe('chain-scoped EVM assets', () => {
       expect(supportsPage(savedNetwork(id), 'tokens')).toBe(true);
       expect(supportsPage(savedNetwork(id), 'ledger')).toBe(false);
       expect(() => requireEvmNetwork(id as keyof typeof evmNetworks, BigInt(network.chainId))).not.toThrow();
-      expect(() => requireEvmNetwork(id as keyof typeof evmNetworks, 1n)).toThrow('Wrong network');
+      expect(() => requireEvmNetwork(id as keyof typeof evmNetworks, BigInt(network.chainId)+1n)).toThrow('Wrong network');
       const csp = securityHeaders(new URL(DEFAULT_RPC), true)['Content-Security-Policy'];
       expect(csp).toContain(new URL(network.rpc).origin);
       expect(csp).not.toContain('unsafe-eval');

@@ -1,6 +1,6 @@
 # Solana Mainnet
 
-Select **Solana Mainnet** in the Network picker, or open Networks and switch to it. It is the only enabled mainnet; other chains retain their test networks. Mainnet spends real funds. This engineering prototype has not received an independent audit.
+Select a clearly labelled Mainnet in the Network picker, or open Networks and filter Environment to Mainnets. Solana plus ten EVM mainnets are enabled; other chains retain their test networks. Mainnet spends real funds. This engineering prototype has not received an independent audit.
 
 A phrase-backed wallet derives its existing Solana address at `m/44'/501'/0'/0'`. Devnet and Mainnet use the same address but separate balances, tracked mints and transaction journals. Ethereum-only private-key imports and BIP-39 passphrase imports cannot open this workspace. Back up the encrypted wallet before using it. Do not reuse the public phrases shown in tests or screenshots.
 
@@ -15,3 +15,17 @@ Before broadcast: recheck identity, 90-second review age, blockhash expiry, mint
 Activity lists locally submitted transactions and links to complete explorer history. Cards remain synthetic demos and cannot spend Mainnet SOL or USDT. Ledger, contacts/watch-only, swaps, bridges, staking and token-account creation are not implemented for Mainnet.
 
 Validation uses public synthetic test vectors and mocked RPC only. Native SOL and USDT review/sign/simulation/journal flows were exercised without any real broadcast. Live funded transfers, provider availability in the user's browser, independent security review and physical-device testing remain unverified.
+
+## EVM mainnets and tokens
+
+Ethereum (1), BNB Smart Chain (56), Polygon (137), Avalanche C-Chain (43114), Base (8453), Arbitrum One (42161), OP Mainnet (10), Linea (59144), Unichain (130) and Ink (57073) use frozen, operator-reviewed HTTPS presets. Select the exact network at the sender. Your EVM receiving address is shared; chain balances, contracts, journals and send locks are separate. Adding a token never bridges it.
+
+Circle-issued USDC is included on Ethereum, Polygon, Avalanche, Base, Arbitrum, OP, Linea, Unichain and Ink. Issuer-listed USDT is included on Ethereum and Avalanche. Addresses and decimals are pinned from [Circle](https://developers.circle.com/stablecoins/usdc-contract-addresses) and [Tether](https://tether.to/en/supported-protocols/). Imported or cached metadata cannot override the registry. Known logos and USD estimates depend on the chain/contract, never its symbol. USDC/USDT use indicative Coinbase snapshots, not an assumed dollar peg. BNB Chain does not receive a misleading issuer-native stablecoin preset; bridged tokens can be imported after verifying the exact contract and bridge provenance.
+
+Other standard ERC-20 contracts can be imported or found through the existing partial recent-event discovery (250 tracked maximum). This is not Trust Wallet's complete backend asset index or a promise to find every holding. Native fees remain ETH, BNB, POL or AVAX as appropriate. Contracts, metadata, balances and simulation are rechecked before signing. Legacy empty-return ERC-20 transfers such as Ethereum USDT are accepted when the call succeeds; false or malformed results remain rejected. Simulation does not prove intended side effects for a malicious token.
+
+BNB uses explicit type-0 gas-price transactions; other presets use type 2. Both signed formats are compared against the reviewed chain, sender, recipient, calldata, amount, nonce and fee fields. The account lock, durable unknown journal, pending-send block and bounded transport apply. Mainnet approval creation, mainnet Ledger, swaps, bridges, staking, NFTs and arbitrary RPC URLs are unavailable. Public RPC endpoints are rate limited; their inclusion does not establish availability in your browser or a production SLA.
+
+L2 reviews show maximum execution fee and explicitly exclude additional data fees; a complete L2 fee quote is not implemented. Native-chain token accounts and different transaction families require their own validated adapters. Bitcoin Mainnet, TRON Mainnet, TON, XRP and other Trust Wallet networks are not enabled by this change. Demo cards cannot spend these assets.
+
+Benchmark: Trust Wallet Chrome extension 26.45.1 was acquired from Google's official update endpoint for its published extension ID and inspected offline with REA. Eight selected source files were analyzed; the extension was never installed or executed. This partial static inspection is not a Trust Wallet audit, full runtime reconstruction or feature-parity claim. Complete evidence and limitations are retained outside this repository.

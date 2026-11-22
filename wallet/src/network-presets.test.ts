@@ -5,15 +5,16 @@ import { evmNetworks, isAdditionalEvm, requireEvmNetwork, type EvmNetworkId } fr
 import { isNetworkId, networkAsset, networkIds, savedNetwork, supportsPage, usesNativeWorkspace } from './network-context';
 import { assertSignedMatchesReview } from './transfer-safety';
 
-describe('reviewed EVM testnet presets', () => {
-  it('uses unique testnet chain IDs, native currencies and frozen configuration', () => {
+describe('reviewed EVM network presets', () => {
+  it('uses unique chain IDs, native currencies and frozen configuration', () => {
     const configs = Object.values(evmNetworks);
-    expect(configs).toHaveLength(11);
+    expect(configs.filter(config=>config.testnet)).toHaveLength(11);
+    expect(configs.filter(config=>!config.testnet)).toHaveLength(10);
     expect(new Set(configs.map(config => config.chainId)).size).toBe(configs.length);
     expect(Object.isFrozen(evmNetworks)).toBe(true);
     for (const config of configs) {
-      expect(config.testnet).toBe(true);
-      expect(config.transactionType).toBe(2);
+      expect(config.testnet).toBe(!config.network.includes('Mainnet'));
+      expect(config.transactionType).toBe(config.chainId === 56 ? 0 : 2);
       expect(config.decimals).toBe(18);
       expect(Number.isSafeInteger(config.chainId) && config.chainId > 0).toBe(true);
       expect(Object.isFrozen(config)).toBe(true);
@@ -28,7 +29,7 @@ describe('reviewed EVM testnet presets', () => {
     expect(networkAsset('avalanche').symbol).toBe('AVAX');
     expect(networkAsset('polygon').pair).toBe('POLUSDT');
     expect(networkAsset('avalanche').pair).toBe('AVAXUSDT');
-    // Mainnets and a retired testnet cannot accidentally become selectable.
+    // Only explicit presets are accepted; aliases and retired/unreviewed chains remain unavailable.
     for (const id of ['mainnet', 'ethereum', 'scroll', '__proto__', 'constructor']) expect(isAdditionalEvm(id)).toBe(false);
   });
 
@@ -54,7 +55,7 @@ describe('reviewed EVM testnet presets', () => {
       }
       expect(supportsPage(id, 'ledger')).toBe(false);
       expect(() => requireEvmNetwork(id, BigInt(evmNetworks[id].chainId))).not.toThrow();
-      expect(() => requireEvmNetwork(id, 1n)).toThrow('Wrong network');
+      expect(() => requireEvmNetwork(id, BigInt(evmNetworks[id].chainId)+1n)).toThrow('Wrong network');
     }
   });
 
@@ -65,7 +66,7 @@ describe('reviewed EVM testnet presets', () => {
       const review = { to, value: 123n, nonce: 0, chainId, type: 2, gasLimit: 21000n, maxFeePerGas: 10n, maxPriorityFeePerGas: 1n };
       const raw = await wallet.signTransaction(review);
       expect(() => assertSignedMatchesReview(raw, review, wallet.address, chainId)).not.toThrow();
-      expect(() => assertSignedMatchesReview(raw, review, wallet.address, 1n)).toThrow('differs');
+      expect(() => assertSignedMatchesReview(raw, review, wallet.address, chainId+1n)).toThrow('differs');
       expect(() => assertSignedMatchesReview(raw, { ...review, value: 124n }, wallet.address, chainId)).toThrow('differs');
     }
   });

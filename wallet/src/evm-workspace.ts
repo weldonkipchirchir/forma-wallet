@@ -10,12 +10,14 @@ import { enhanceCards } from './ui-panels';
 import { mountTokenDiscovery } from './token-discovery-ui';
 import { assetLogo, assetTable, readNativeReference } from './asset-display';
 import { createRpcProvider } from './rpc-transport';
+import { listedMainnetToken, listedMainnetTokens } from './mainnet-tokens';
 
 const escape = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 type Review = { tx: TransactionRequest; to: string; amount: bigint; token?: Token; created: number };
-export async function verifyEvmTokenTransfer(provider: Pick<JsonRpcProvider, 'getCode' | 'call'>, owner: string, token: Token, amount: bigint, tx: TransactionRequest) {
+export async function verifyEvmTokenTransfer(provider: Pick<JsonRpcProvider, 'getCode' | 'call'>, owner: string, token: Token, amount: bigint, tx: TransactionRequest, recipient?: string) {
   if (tokenAddress(String(tx.to)) !== token.address || BigInt(tx.value || 0) !== 0n
     || BigInt(tokenInterface.decodeFunctionData('transfer', tx.data || '0x')[1]) !== amount) throw new Error('Token simulation differs from the reviewed contract or amount.');
+  if (recipient && tokenAddress(tokenInterface.decodeFunctionData('transfer', tx.data || '0x')[0]) !== tokenAddress(recipient)) throw new Error('Token recipient differs from the review.');
   if (await provider.getCode(token.address) === '0x') throw new Error('The reviewed token contract is no longer available. Review again.');
   const [decimalsData, balanceData] = await Promise.all([
     provider.call({ to: token.address, data: tokenInterface.encodeFunctionData('decimals'), from: owner }),
@@ -24,8 +26,10 @@ export async function verifyEvmTokenTransfer(provider: Pick<JsonRpcProvider, 'ge
   if (Number(tokenInterface.decodeFunctionResult('decimals', decimalsData)[0]) !== token.decimals) throw new Error('Token decimals changed. Remove and verify the token again.');
   if (BigInt(tokenInterface.decodeFunctionResult('balanceOf', balanceData)[0]) < amount) throw new Error('Insufficient token balance.');
   const result = await provider.call({ ...tx, from: owner });
-  if (!tokenInterface.decodeFunctionResult('transfer', result)[0]) throw new Error('Token transfer simulation returned false.');
+  // Legacy ERC-20 contracts (including Ethereum USDT) may return no value.
+  if (result !== '0x' && !tokenInterface.decodeFunctionResult('transfer', result)[0]) throw new Error('Token transfer simulation returned false.');
 }
+export function maximumEvmFee(tx: TransactionRequest) { return BigInt(tx.gasLimit ?? 0) * BigInt(tx.type === 0 ? tx.gasPrice ?? 0 : tx.maxFeePerGas ?? 0); }
 export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wallet: Wallet | HDNodeWallet, session: {
   current(): boolean; hidden(): boolean; toggleHidden(): void; page: string;
 }) {
@@ -34,6 +38,7 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
   let disposed = false, busy = false, review: Review | undefined, revision = 0;
   let balance: bigint | undefined;
   let nativePrice: number | undefined;
+  const stablePrices = new Map<string, number>();
   const priceAbort = new AbortController();
   let tokenQuery = '', tokenPage = 0;
   let disposeDiscovery: (() => void) | undefined, discoveryOpened = false;
@@ -64,8 +69,11 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
     const holdings = host.querySelector<HTMLElement>('#evm-holdings');
     if (holdings) holdings.innerHTML = assetTable([
       { id: 'native', symbol: config.symbol, name: `${config.network} · native gas asset`, amount: balance === undefined ? undefined : formatUnits(balance, config.decimals), usd: balance !== undefined && nativePrice !== undefined ? Number(formatUnits(balance, config.decimals)) * nativePrice : undefined, verified: true },
-      ...tokens().map(token => ({ id: token.address, symbol: token.symbol, name: `${token.name} · unverified`, amount: balances.get(token.address) === undefined ? undefined : formatUnits(balances.get(token.address)!, token.decimals) })),
-    ], session.hidden());
+      ...tokens().map(token => {
+        const listed = listedMainnetToken(network,token.address), amount = balances.get(token.address) === undefined ? undefined : formatUnits(balances.get(token.address)!,token.decimals), price = listed ? stablePrices.get(listed.symbol) : undefined;
+        return { id:token.address,symbol:token.symbol,name:`${token.name} · ${listed?'issuer-listed':'unverified'}`,amount,usd:amount!==undefined&&price!==undefined?Number(amount)*price:undefined,verified:!!listed,kind:'token' as const };
+      }),
+    ], session.hidden(), true, config.testnet ? 'testnet' : 'mainnet');
     for (const token of visibleTokens().tokens) {
       const el = host.querySelector<HTMLElement>(`[data-evm-balance="${token.address}"]`);
       if (el) el.textContent = session.hidden() ? '••••••' : !balances.has(token.address) ? 'Not loaded · refresh page' : `${display(balances.get(token.address), token.decimals)} ${token.symbol}`;
@@ -79,7 +87,7 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
     if (!current()) return;
     const page = visibleTokens(); tokenPage = page.page;
     $('token-count').textContent = `${tokens().length} / ${EVM_TOKEN_LIMIT} tracked · ${page.total} matching · page ${page.page + 1} of ${page.pages}`;
-    $('token-list').innerHTML = page.tokens.map(token => `<div class="asset-row">${assetLogo(token.symbol)}<div><strong>${escape(token.symbol)}</strong><p>${escape(token.name)} · unverified</p><code>${token.address}</code></div><strong data-evm-balance="${token.address}">Not loaded · refresh page</strong><button type="button" class="quiet" data-evm-remove="${token.address}">Remove tracking</button></div>`).join('') || '<p>No tokens match this search. Import a verified contract on the selected network.</p>';
+    $('token-list').innerHTML = page.tokens.map(token => {const listed=listedMainnetToken(network,token.address);return `<div class="asset-row">${assetLogo(token.symbol,!!listed)}<div><strong>${escape(token.symbol)}</strong><p>${escape(token.name)} · ${listed?'issuer-listed':'unverified'}</p><code>${token.address}</code>${listed?`<a href="${listed.source}" target="_blank" rel="noopener noreferrer">Issuer reference ↗</a>`:''}</div><strong data-evm-balance="${token.address}">Not loaded · refresh page</strong>${listed?'<span class="pill">Included</span>':`<button type="button" class="quiet" data-evm-remove="${token.address}">Remove tracking</button>`}</div>`;}).join('') || '<p>No tokens match this search. Import a verified contract on the selected network.</p>';
     ($('previous') as HTMLButtonElement).disabled = busy || page.page === 0;
     ($('next') as HTMLButtonElement).disabled = busy || page.page + 1 >= page.pages;
     $('token-list').querySelectorAll<HTMLButtonElement>('[data-evm-remove]').forEach(button => button.onclick = () => {
@@ -100,7 +108,7 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
     busy = true; controls();
     try { await work(); } catch (error) {
       // Never expose RPC diagnostic payloads or untrusted exception strings.
-      const message = error instanceof Error && !('code' in error) && error.message.length < 350 ? error.message : 'Network operation failed. Check the selected testnet, balance and connection, then refresh.';
+      const message = error instanceof Error && !('code' in error) && error.message.length < 350 ? error.message : 'Network operation failed. Check the selected network, balance and connection, then refresh.';
       notice(message, true);
     } finally { if (current()) { busy = false; controls(); inventory(); } }
   }
@@ -127,7 +135,7 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
   async function importToken() {
     const address = tokenAddress(input('contract'));
     await networkCheck();
-    if (await provider.getCode(address) === '0x') throw new Error('No token contract exists at this address on the selected testnet.');
+    if (await provider.getCode(address) === '0x') throw new Error('No token contract exists at this address on the selected network.');
     const contract = new Contract(address, ERC20_ABI, provider);
     const [name, symbol, rawDecimals] = await Promise.all([contract.name(), contract.symbol(), contract.decimals()]); live();
     const decimals = Number(rawDecimals);
@@ -147,16 +155,17 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
     const amount = tokenAmount(input('amount'), token?.decimals ?? config.decimals);
     if (token && to === token.address) throw new Error('Do not send a token to its own contract.');
     await networkCheck(); requireResolvedEvm(journal());
-    const tx: TransactionRequest = { to: token?.address || to, value: token ? 0n : amount, data: token ? tokenInterface.encodeFunctionData('transfer', [to, amount]) : '0x', chainId, type: 2 };
+    const tx: TransactionRequest = { to: token?.address || to, value: token ? 0n : amount, data: token ? tokenInterface.encodeFunctionData('transfer', [to, amount]) : '0x', chainId, type: config.transactionType };
     const signer = wallet.connect(provider);
-    if (token) await verifyEvmTokenTransfer(provider, owner, token, amount, tx);
+    if (token) await verifyEvmTokenTransfer(provider, owner, token, amount, tx, to);
     const gas = await signer.estimateGas(tx), fees = await provider.getFeeData();
-    if (fees.maxFeePerGas == null || fees.maxPriorityFeePerGas == null) throw new Error('EIP-1559 fee data unavailable.');
-    tx.gasLimit = gas + gas / 5n; tx.maxFeePerGas = fees.maxFeePerGas; tx.maxPriorityFeePerGas = fees.maxPriorityFeePerGas;
-    if (await provider.getBalance(owner, 'pending') < BigInt(tx.value || 0) + BigInt(tx.gasLimit) * fees.maxFeePerGas) throw new Error(`Insufficient test ${config.symbol} for amount and maximum execution fee.`);
+    tx.gasLimit = gas + gas / 5n;
+    if(config.transactionType===0){if(fees.gasPrice==null||fees.gasPrice<=0n)throw new Error('Legacy fee data unavailable.');tx.gasPrice=fees.gasPrice;}
+    else {if(fees.maxFeePerGas==null||fees.maxPriorityFeePerGas==null||fees.maxFeePerGas<=0n||fees.maxPriorityFeePerGas<0n||fees.maxPriorityFeePerGas>fees.maxFeePerGas)throw new Error('EIP-1559 fee data unavailable or invalid.');tx.maxFeePerGas=fees.maxFeePerGas;tx.maxPriorityFeePerGas=fees.maxPriorityFeePerGas;}
+    if (await provider.getBalance(owner, 'pending') < BigInt(tx.value || 0) + maximumEvmFee(tx)) throw new Error(`Insufficient ${config.symbol} for amount and maximum execution fee.`);
     live(); if (version !== revision) return;
     review = { tx, to, amount, token, created: Date.now() };
-    $('review').innerHTML = `<div class="review"><h3>Review ${escape(config.network)} transfer</h3><p>Chain ID: ${config.chainId}</p><code>To: ${to}</code>${token ? `<p>Contract: <code>${token.address}</code></p>` : ''}<p>Amount: ${escape(formatUnits(amount, token?.decimals ?? config.decimals))} ${escape(token?.symbol || config.symbol)}</p><p>Maximum execution fee: ${formatEther(BigInt(tx.gasLimit) * fees.maxFeePerGas)} ${escape(config.symbol)}. L2 chains may charge additional data fees; this is not a complete L2 fee quote.</p><p>Test assets only. Token labels are unverified. Review expires in two minutes.</p><label class="check"><input id="evm-ack" type="checkbox"> I checked the full recipient, contract and selected test network.</label><button id="evm-confirm" type="button" class="primary">Sign & send test transfer</button><button id="evm-cancel" type="button" class="quiet">Cancel</button></div>`;
+    $('review').innerHTML = `<div class="review"><h3>Review ${escape(config.network)} transfer</h3><p>${config.testnet?'TESTNET · no monetary value':'MAINNET · REAL FUNDS'} · Chain ID: ${config.chainId}</p><code>To: ${to}</code>${token ? `<p>Contract: <code>${token.address}</code></p>` : ''}<p>Amount: ${escape(formatUnits(amount, token?.decimals ?? config.decimals))} ${escape(token?.symbol || config.symbol)}</p><p>Maximum execution fee: ${formatEther(maximumEvmFee(tx))} ${escape(config.symbol)}. L2 chains may charge additional data fees; this is not a complete L2 fee quote.</p><p>Confirm token identity by its contract, not its symbol. Review expires in two minutes.</p><label class="check"><input id="evm-ack" type="checkbox"> I checked the full recipient, contract, amount, fees and ${config.testnet?'test network':'Mainnet. This spends real funds'}.</label><button id="evm-confirm" type="button" class="primary">${config.testnet?'Sign & send test transfer':'Confirm Mainnet transfer'}</button><button id="evm-cancel" type="button" class="quiet">Cancel</button></div>`;
     $('confirm').onclick = () => { void run(send); };
     $('cancel').onclick = () => { revision++; review = undefined; $('review').replaceChildren(); };
   }
@@ -170,10 +179,10 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
       fresh(); await networkCheck(); requireResolvedEvm(journal()); fresh();
       review = undefined; $('review').replaceChildren();
       const signer = wallet.connect(provider);
-      if (r.token) await verifyEvmTokenTransfer(provider, owner, r.token, r.amount, r.tx);
+      if (r.token) await verifyEvmTokenTransfer(provider, owner, r.token, r.amount, r.tx, r.to);
       fresh();
       if (await signer.estimateGas(r.tx) > BigInt(r.tx.gasLimit!)) throw new Error('Execution gas changed. Review the transfer and fee again.');
-      if (await provider.getBalance(owner, 'pending') < BigInt(r.tx.value || 0) + BigInt(r.tx.gasLimit!) * BigInt(r.tx.maxFeePerGas!)) throw new Error(`Insufficient test ${config.symbol} for the reviewed transfer and fee.`);
+      if (await provider.getBalance(owner, 'pending') < BigInt(r.tx.value || 0) + maximumEvmFee(r.tx)) throw new Error(`Insufficient ${config.symbol} for the reviewed transfer and fee.`);
       fresh();
       const populated = await signer.populateTransaction(r.tx);
       fresh();
@@ -192,8 +201,8 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
     host.innerHTML = `<p id="evm-notice" class="hint" role="status">Loading ${escape(config.network)}…</p>
       <section class="balance-card"><div class="eyebrow">${escape(config.network)} · CHAIN ${config.chainId}</div><h2 id="evm-balance">— ${escape(config.symbol)}</h2><p>Uses your selected Ethereum account address. Balances and contracts are separate on each chain.</p><div class="balance-actions"><button id="evm-refresh" type="button" class="quiet">Refresh</button><button id="evm-privacy" type="button" class="quiet">Hide balances</button></div></section>
       <div class="wallet-grid" style="margin-top:24px"><section class="card"><h2>Send crypto</h2><form id="evm-send"><label for="evm-asset">Asset on ${escape(config.network)}</label><select id="evm-asset"><option value="native">${escape(config.symbol)} · native gas token</option>${list.map(token => `<option value="${token.address}">${escape(token.symbol)} · ${token.address.slice(0, 8)}…${token.address.slice(-6)}</option>`).join('')}</select><label for="evm-to">Recipient address</label><input id="evm-to" required autocomplete="off" placeholder="0x…" maxlength="42"><label for="evm-amount">Amount</label><input id="evm-amount" required inputmode="decimal" autocomplete="off" maxlength="120"><button class="primary">Review transfer</button></form><div id="evm-review"></div></section>
-      <section class="card"><h2>Receive crypto</h2><p>${escape(config.network)} only · same EVM address, different network</p><canvas id="evm-qr" aria-label="Selected testnet receive address QR"></canvas><code class="multi-address">${owner}</code><button id="evm-copy" type="button" class="quiet">Copy address</button><p>Choose this exact network at the sender. Adding a token does not bridge funds.</p><a href="${config.explorer}/address/${owner}" target="_blank" rel="noopener noreferrer">View account on explorer ↗</a></section></div>
-      <section class="card" style="margin-top:24px"><h2>Tokens on ${escape(config.network)}</h2><p>Add a standard ERC-20 contract deployed on this testnet. USDT/USDC labels can be copied by anyone; verify the address with its issuer. Native SOL belongs to Solana. Wrapped assets here are separate contracts.</p><form id="evm-import"><label for="evm-contract">Token contract address</label><input id="evm-contract" required autocomplete="off" placeholder="0x…" maxlength="42"><button class="quiet">Import token</button></form><div class="history-controls"><label for="evm-token-query">Search tracked tokens<input id="evm-token-query" type="search" maxlength="100" placeholder="Name, symbol or contract" value="${escape(tokenQuery)}"></label><button id="evm-search" type="button" class="quiet">Search tokens</button><button id="evm-token-refresh" type="button" class="quiet">Refresh visible balances</button></div><p id="evm-token-count" class="hint"></p><div id="evm-token-list"></div><div class="balance-actions"><button id="evm-previous" type="button" class="quiet">Previous tokens</button><button id="evm-next" type="button" class="quiet">Next tokens</button></div><p class="hint">Up to ${EVM_TOKEN_LIMIT} manually imported contracts per account and chain. Balance requests cover only the visible ${EVM_TOKEN_PAGE_SIZE}-token page with at most three requests in flight. Search and page navigation preserve the transfer form.</p></section>
+      <section class="card"><h2>Receive crypto</h2><p>${escape(config.network)} only · same EVM address, different network</p><canvas id="evm-qr" aria-label="Selected network receive address QR"></canvas><code class="multi-address">${owner}</code><button id="evm-copy" type="button" class="quiet">Copy address</button><p>Choose this exact network at the sender. Adding a token does not bridge funds.</p><a href="${config.explorer}/address/${owner}" target="_blank" rel="noopener noreferrer">View account on explorer ↗</a></section></div>
+      <section class="card" style="margin-top:24px"><h2>Tokens on ${escape(config.network)}</h2><p>Add a standard ERC-20 contract deployed on this network. Issuer-listed stablecoins are included automatically on supported mainnets. USDT/USDC labels can be copied by anyone; verify the address with its issuer. Native SOL belongs to Solana. Wrapped assets here are separate contracts.</p><form id="evm-import"><label for="evm-contract">Token contract address</label><input id="evm-contract" required autocomplete="off" placeholder="0x…" maxlength="42"><button class="quiet">Import token</button></form><div class="history-controls"><label for="evm-token-query">Search tracked tokens<input id="evm-token-query" type="search" maxlength="100" placeholder="Name, symbol or contract" value="${escape(tokenQuery)}"></label><button id="evm-search" type="button" class="quiet">Search tokens</button><button id="evm-token-refresh" type="button" class="quiet">Refresh visible balances</button></div><p id="evm-token-count" class="hint"></p><div id="evm-token-list"></div><div class="balance-actions"><button id="evm-previous" type="button" class="quiet">Previous tokens</button><button id="evm-next" type="button" class="quiet">Next tokens</button></div><p class="hint">Up to ${EVM_TOKEN_LIMIT} manually imported contracts per account and chain. Balance requests cover only the visible ${EVM_TOKEN_PAGE_SIZE}-token page with at most three requests in flight. Search and page navigation preserve the transfer form.</p></section>
       <section class="card activity-workspace" style="margin-top:24px"><h2>Local transfer history</h2><p>Transfers submitted from this browser only. Incoming transfers and transfers from other wallets are available on the explorer. Unknown does not mean failed; never retry automatically.</p><div id="evm-history"></div></section>`;
     $('refresh').onclick = () => { void run(refresh); };
     $('privacy').onclick = () => { session.toggleHidden(); amounts(); history(); };
@@ -257,5 +266,6 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
   window.addEventListener('storage', changed);
   paint(); initialRefresh = run(refresh);
   if (['overview', 'portfolio'].includes(session.page)) void readNativeReference(config.symbol, priceAbort.signal).then(price => { if (current()) { nativePrice = price; amounts(); } }).catch(() => {});
+  if (!config.testnet && ['overview','portfolio'].includes(session.page)) for (const symbol of new Set(listedMainnetTokens(network).map(token=>token.symbol))) void readNativeReference(symbol,priceAbort.signal).then(price=>{if(current()){stablePrices.set(symbol,price);amounts();}}).catch(()=>{});
   return () => { disposed = true; priceAbort.abort(); revision++; review = undefined; disposeDiscovery?.(); window.removeEventListener('storage', changed); provider.destroy(); };
 }

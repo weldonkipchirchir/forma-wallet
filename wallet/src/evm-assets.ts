@@ -2,6 +2,7 @@ import { getAddress } from 'ethers';
 import { evmNetworks, type EvmNetworkId } from './evm-networks';
 import { savedTokens, type Token } from './token-data';
 import { parseJournal, type TokenSubmission } from './token-journal';
+import { mergeListedTokens } from './mainnet-tokens';
 
 export const evmTokenKey = (network: EvmNetworkId, owner: string) => `forma.evm.tokens.v1:${evmNetworks[network].chainId}:${getAddress(owner).toLowerCase()}`;
 export const evmJournalKey = (network: EvmNetworkId, owner: string) => `forma.evm.submissions.v1:${evmNetworks[network].chainId}:${getAddress(owner).toLowerCase()}`;
@@ -39,8 +40,8 @@ export function evmTokenPage(tokens: Token[], search = '', page = 0) {
 export function readEvmTokens(store: ReadStore, network: EvmNetworkId, owner: string): Token[] {
   try {
     const raw = store.getItem(evmTokenKey(network, owner)) || '[]';
-    return raw.length > 500_000 ? [] : parseEvmTokens(JSON.parse(raw));
-  } catch { return []; }
+    return mergeListedTokens(network, raw.length > 500_000 ? [] : parseEvmTokens(JSON.parse(raw)));
+  } catch { return mergeListedTokens(network, []); }
 }
 export function readEvmJournal(store: ReadStore, network: EvmNetworkId, owner: string): TokenSubmission[] {
   const raw = store.getItem(evmJournalKey(network, owner));

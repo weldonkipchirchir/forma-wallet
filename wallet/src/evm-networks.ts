@@ -1,9 +1,20 @@
 type PresetInput = { name: string; network: string; chainId: number; symbol: string; rpc: string; explorer: string; docs: string };
 const testnet = <const T extends PresetInput>(preset: T) => Object.freeze({ ...preset, decimals: 18, testnet: true, transactionType: 2 } as const);
+const mainnet = <const T extends PresetInput>(preset: T, transactionType: 0 | 2 = 2) => Object.freeze({ ...preset, decimals: 18, testnet: false, transactionType } as const);
 
 // Operator-reviewed HTTPS endpoints, not a remote/untrusted network-list import.
 // Public RPCs can be rate limited. Every connection must still verify eth_chainId.
 export const evmNetworks = Object.freeze({
+  'ethereum-mainnet': mainnet({ name: 'Ethereum', network: 'Ethereum Mainnet', chainId: 1, symbol: 'ETH', rpc: 'https://ethereum-rpc.publicnode.com', explorer: 'https://etherscan.io', docs: 'https://ethereum.publicnode.com/' }),
+  'bnb-mainnet': mainnet({ name: 'BNB Smart Chain', network: 'BNB Smart Chain Mainnet', chainId: 56, symbol: 'BNB', rpc: 'https://bsc-dataseed.bnbchain.org', explorer: 'https://bscscan.com', docs: 'https://docs.bnbchain.org/bnb-smart-chain/developers/json_rpc/json-rpc-endpoint/' }, 0),
+  'polygon-mainnet': mainnet({ name: 'Polygon', network: 'Polygon Mainnet', chainId: 137, symbol: 'POL', rpc: 'https://polygon.drpc.org', explorer: 'https://polygonscan.com', docs: 'https://docs.polygon.technology/pos/reference/rpc-endpoints/' }),
+  'avalanche-mainnet': mainnet({ name: 'Avalanche', network: 'Avalanche C-Chain Mainnet', chainId: 43114, symbol: 'AVAX', rpc: 'https://api.avax.network/ext/bc/C/rpc', explorer: 'https://snowtrace.io', docs: 'https://docs.avax.network/docs/primary-network' }),
+  'base-mainnet': mainnet({ name: 'Base', network: 'Base Mainnet', chainId: 8453, symbol: 'ETH', rpc: 'https://mainnet.base.org', explorer: 'https://basescan.org', docs: 'https://docs.base.org/get-started/connect-to-base' }),
+  'arbitrum-mainnet': mainnet({ name: 'Arbitrum', network: 'Arbitrum One Mainnet', chainId: 42161, symbol: 'ETH', rpc: 'https://arb1.arbitrum.io/rpc', explorer: 'https://arbiscan.io', docs: 'https://docs.arbitrum.io/chain-info' }),
+  'optimism-mainnet': mainnet({ name: 'Optimism', network: 'OP Mainnet', chainId: 10, symbol: 'ETH', rpc: 'https://mainnet.optimism.io', explorer: 'https://optimistic.etherscan.io', docs: 'https://github.com/ethereum-optimism/superchain-registry/blob/main/superchain/configs/mainnet/op.toml' }),
+  'linea-mainnet': mainnet({ name: 'Linea', network: 'Linea Mainnet', chainId: 59144, symbol: 'ETH', rpc: 'https://rpc.linea.build', explorer: 'https://lineascan.build', docs: 'https://docs.linea.build/network/build/connect' }),
+  'unichain-mainnet': mainnet({ name: 'Unichain', network: 'Unichain Mainnet', chainId: 130, symbol: 'ETH', rpc: 'https://mainnet.unichain.org', explorer: 'https://uniscan.xyz', docs: 'https://developers.uniswap.org/docs/unichain/technical-information/network-information' }),
+  'ink-mainnet': mainnet({ name: 'Ink', network: 'Ink Mainnet', chainId: 57073, symbol: 'ETH', rpc: 'https://rpc-gel.inkonchain.com', explorer: 'https://explorer.inkonchain.com', docs: 'https://docs.inkonchain.com/general/network-information' }),
   base: testnet({ name: 'Base', network: 'Base Sepolia', chainId: 84532, symbol: 'ETH', rpc: 'https://sepolia.base.org', explorer: 'https://sepolia.basescan.org', docs: 'https://docs.base.org' }),
   arbitrum: testnet({ name: 'Arbitrum', network: 'Arbitrum Sepolia', chainId: 421614, symbol: 'ETH', rpc: 'https://sepolia-rollup.arbitrum.io/rpc', explorer: 'https://sepolia.arbiscan.io', docs: 'https://docs.arbitrum.io/arbitrum-essentials/reference/node-providers' }),
   optimism: testnet({ name: 'Optimism', network: 'OP Sepolia', chainId: 11155420, symbol: 'ETH', rpc: 'https://sepolia.optimism.io', explorer: 'https://optimism-sepolia.blockscout.com', docs: 'https://docs.optimism.io' }),

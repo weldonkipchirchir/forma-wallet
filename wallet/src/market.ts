@@ -1,4 +1,4 @@
-import { networkAsset, type NetworkId } from './network-context';
+import { networkAsset, isMainnetNetwork, type NetworkId } from './network-context';
 import { assetLogo } from './asset-display';
 import { createChart, CandlestickSeries, HistogramSeries, ColorType, type UTCTimestamp } from 'lightweight-charts';
 import { ranges, marketRequest, parseCandles, percentageChange, type Candle } from './market-data';
@@ -7,7 +7,7 @@ export function marketMarkup(network: NetworkId = 'eth') {
   const asset = networkAsset(network);
   return `<section id="market-panel" class="card market-panel"><div class="section-heading"><div><div class="eyebrow">SPOT MARKET · ${asset.symbol} / USDT</div><h2>${assetLogo(asset.symbol, true)} ${asset.name} market</h2></div><span id="market-state" class="pill">Connecting</span></div>
   <div class="market-price-row"><strong id="market-price">— <small>USDT</small></strong><span id="market-day-change">24h change —</span></div>
-  <p class="market-disclaimer">${network === 'sol-mainnet' ? 'Solana Mainnet uses real funds. Spot chart prices are indicative, not executable wallet quotes.' : `Real ${asset.symbol} market data, separate from your ${asset.network} test wallet. Test assets have no monetary value.`} ALL starts at Binance’s earliest ${asset.symbol}/USDT candle, not the network’s launch.</p>
+  <p class="market-disclaimer">${isMainnetNetwork(network) ? 'Mainnet uses real funds. Spot chart prices are indicative, not executable wallet quotes.' : `Real ${asset.symbol} market data, separate from your ${asset.network} test wallet. Test assets have no monetary value.`} ALL starts at Binance’s earliest ${asset.symbol}/USDT candle, not the network’s launch.</p>
   <div class="market-changes">${ranges.map(r => `<div><span>${r.label}</span><strong data-market-change="${r.label}">—</strong></div>`).join('')}</div>
   <div class="market-controls"><div class="filter-tabs" aria-label="Chart history range">${ranges.map(r => `<button data-market-range="${r.label}" aria-pressed="${r.label === '24H'}" class="${r.label === '24H' ? 'is-active' : ''}">${r.label}</button>`).join('')}</div><button id="market-fit" class="quiet">Reset chart</button></div>
   <div id="market-ohlc" class="market-ohlc" aria-live="off">Loading candles…</div><div id="market-chart" role="img" aria-label="Interactive ${asset.name} USDT candlestick chart. Scroll to zoom, drag to pan, hover for OHLC values."></div>
