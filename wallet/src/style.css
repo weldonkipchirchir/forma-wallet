@@ -235,3 +235,33 @@ form input[aria-invalid=true]{border-color:var(--form-error-ink)!important}
 @media(max-width:650px){.submission-actions{justify-content:flex-start}.replacement-review{padding:14px}}
 
 #evm-notice[role=alert]{color:var(--form-error-ink);background:var(--form-error-bg);border:1px solid var(--form-error-border);border-radius:10px;padding:12px 14px;font-weight:600}
+
+/* Token approval discovery and revoke-only approval flow. */
+.approvals-card{margin-top:22px}
+.approval-warning{color:#9a5e2f!important;font-size:12px!important;line-height:1.7}
+.approval-row .token-row-value{max-width:290px}
+.approval-row code,#approval-check-result code{overflow-wrap:anywhere;word-break:break-all}
+.approval-check{border-top:1px solid #dce4d5;margin-top:14px;padding-top:16px}
+.approval-check strong{display:block;font-size:15px;margin-bottom:7px}
+#approval-check{grid-template-columns:1fr 1fr auto;align-items:end;max-width:900px}
+#approval-check label{grid-row:1}
+#approval-check select,#approval-check input{grid-row:2}
+#approval-check button{grid-row:2}
+#approval-check-result{padding-top:14px}
+#approval-notice{overflow-wrap:anywhere;font-size:12px;padding:10px 0}
+#approval-notice a{color:#537143}
+[data-theme=dark] .approval-warning{color:#f0b37e!important}
+[data-theme=dark] .approval-check{border-color:#3b4b3e}
+[data-theme=dark] #approval-notice a{color:#cce6b4}
+@media(max-width:650px){#approval-check{grid-template-columns:1fr}#approval-check label,#approval-check select,#approval-check input,#approval-check button{grid-row:auto}.approval-row .token-row-value{max-width:none}}
+.network-manager-intro{max-width:750px;margin-bottom:28px}.network-manager-intro h2{font-size:30px;letter-spacing:-1px;margin:16px 0 12px}.network-manager-intro p{line-height:1.8;color:var(--ui-muted)}
+.network-manager-toolbar{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:16px;padding:20px;background:var(--ui-soft);border:1px solid var(--ui-border);border-radius:18px}.network-manager-toolbar label{font-size:12px;color:var(--ui-muted)}.network-manager-toolbar input,.network-manager-toolbar select{margin-top:8px}
+.network-manager-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin:20px 0 28px}.network-manager-card{min-width:0;padding:25px;border:1px solid var(--ui-border);border-radius:20px;background:var(--ui-surface)}.network-manager-card.is-selected{border-color:#8aab6c;box-shadow:0 0 0 2px #97b37025}.network-manager-card h2{font-size:21px;margin:22px 0 12px;letter-spacing:-.5px}.network-card-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;color:var(--ui-muted);font-size:11px}.network-family-badge{padding:6px 10px;border-radius:8px;background:var(--ui-soft);border:1px solid var(--ui-border);font-weight:700;letter-spacing:1px}.network-manager-card .network-rpc{font-family:monospace;font-size:11px;overflow-wrap:anywhere;color:var(--ui-muted)}.network-manager-card>a{font-size:12px;color:var(--ui-ink)}.network-card-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}.network-card-actions button{font-size:11px;padding:10px 12px}.network-card-actions button[aria-pressed=true]{background:var(--ui-accent);color:#213b2e}.network-capabilities-note p{line-height:1.8;color:var(--ui-muted)}
+.account-network-grid button[aria-pressed=true]{background:var(--ui-accent);color:#213b2e;border-color:#8aab6c}
+.demo-card-disclaimer{padding:21px 24px;background:var(--ui-soft);border:1px solid var(--ui-border);border-left:4px solid #a5b877;border-radius:16px;margin-bottom:22px}.demo-card-disclaimer>strong{font-size:14px}.demo-card-disclaimer p{max-width:850px;font-size:12px;line-height:1.8;color:var(--ui-muted);margin-bottom:0}
+.demo-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;margin:22px 0 30px}.demo-payment-card{position:relative;overflow:hidden;min-width:0;padding:27px;border:1px solid #64816a;border-radius:24px;background:radial-gradient(ellipse at 100% 0,#7d96684d,transparent 65%),linear-gradient(125deg,#173d32,#294a3b);color:#f0f4e8;box-shadow:0 14px 32px #102c2418}.demo-payment-card.is-frozen{background:linear-gradient(125deg,#34433f,#50605b);border-color:#7a8f85}.demo-card-top{display:flex;justify-content:space-between;align-items:center;gap:12px}.demo-card-top>strong{font-size:24px;letter-spacing:-1px}.demo-card-top small{font-size:8px;letter-spacing:2px;margin-left:8px;vertical-align:middle;color:#d4e6ab}.demo-card-top>span{padding:6px 9px;font-size:10px;border:1px solid #e8f0db44;border-radius:100px}.demo-card-chip{display:grid;place-items:center;width:42px;height:32px;border-radius:9px;background:linear-gradient(140deg,#e3dba8,#9b9d6a);color:#3e5039;font-size:22px;margin:27px 0 20px}
+:root .demo-payment-card .demo-card-digits{font-family:monospace;letter-spacing:2px;font-size:20px;color:#edf3df;margin:0 0 19px}.demo-payment-card h2{font-size:15px;font-weight:500;letter-spacing:.4px;color:#edf3df;margin:0 0 24px}.demo-card-limits{display:flex;justify-content:space-between;gap:20px;border-top:1px solid #d4e1cb33;padding-top:18px}.demo-card-limits span{font-size:10px;color:#c6d9ca}.demo-card-limits strong{display:block;font-size:18px;color:#f0f5e9;margin-top:7px}.demo-card-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:24px}.demo-card-actions button.quiet{background:#ffffff12;border:1px solid #ffffff30;color:#f0f5e9;font-size:11px;padding:9px 12px}.demo-card-actions button.quiet:hover{background:#ffffff25}.demo-card-forms{margin-top:24px}.demo-card-forms h2{font-size:21px}.demo-card-forms form{margin-top:24px}.demo-card-forms input,.demo-card-forms select{margin:8px 0 18px}.demo-card-history{margin-top:24px}.demo-card-history .history-row>strong{font-size:15px;white-space:nowrap}
+#demo-card-message[role=alert]{color:var(--form-error-ink);background:var(--form-error-bg);border:1px solid var(--form-error-border);border-radius:10px;padding:12px 14px;font-weight:600}
+@media(max-width:850px){.network-manager-grid,.demo-card-grid{grid-template-columns:1fr}.network-manager-toolbar{grid-template-columns:1fr}.demo-payment-card{max-width:520px;width:100%;box-sizing:border-box}.network-manager-card{padding:21px}.network-card-actions{gap:7px}}
+@media(prefers-reduced-motion:reduce){.network-manager-card,.demo-payment-card{transition:none}}
+#wallet-sidebar{max-height:100dvh}#wallet-sidebar nav{min-height:0;flex:1;overflow-y:auto;align-content:start;padding-right:3px}#wallet-sidebar .brand,#wallet-sidebar .workspace,#wallet-sidebar .aside-bottom{flex-shrink:0}

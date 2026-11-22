@@ -4,6 +4,7 @@ import { assertFreshReview, recipientNotice } from './transfer-safety';
 import { affordable, requireSepolia, transferInput } from './wallet';
 import { nativeJournalKey, parseJournal, type TokenSubmission } from './token-journal';
 import { inspectSubmissions, submissionDetail, submitTracked } from './transaction-reliability';
+import { assertSepoliaNonceFree, retainSepoliaSubmission, strictSepoliaJournal, withSepoliaSendLock } from './sepolia-send';
 import { contactNotice, loadContacts } from './contacts';
 import type { LedgerDevice } from './ledger-device';
 import { simulatorMarkup, mountSimulator } from './ledger-simulator';
@@ -90,20 +91,28 @@ export function mountLedger(host: HTMLElement, provider: JsonRpcProvider, back: 
       if (!prepared || !device || !input('ledger-approve').checked) throw new Error('Review and acknowledge the recipient first.');
       assertFreshReview(reviewedAt);
       const request = prepared, client = device, version = epoch, owner = address;
+      await withSepoliaSendLock(owner, async () => {
       prepared = undefined; $('ledger-review').replaceChildren();
       const current = () => !disposed && epoch === version && address === owner && device === client;
       requireSepolia((await provider.getNetwork()).chainId);
       if (!current()) throw new Error('Ledger session changed. Nothing was broadcast.');
+      const pendingNonce = await provider.getTransactionCount(owner, 'pending');
+      if (!current()) throw new Error('Ledger session changed. Nothing was signed.');
+      assertFreshReview(reviewedAt);
+      if (pendingNonce !== request.nonce) throw new Error('The account nonce changed after review. Review a fresh transfer before signing on Ledger.');
+      assertSepoliaNonceFree(owner, request.nonce);
       const signature = await client.sign(ledgerUnsigned(request));
+      if (!current()) throw new Error('Ledger session changed. Nothing was broadcast.');
       const raw = ledgerSigned(request, signature, owner);
       assertFreshReview(reviewedAt);
       requireSepolia((await provider.getNetwork()).chainId);
       const row: TokenSubmission = { hash: keccak256(raw), contract: ZeroAddress, to: String(request.to), amount: String(request.value), decimals: 18, symbol: 'ETH', nonce: Number(request.nonce), timestamp: new Date().toISOString(), status: 'unknown' };
       await submitTracked(raw, row, update => {
-        let existing: TokenSubmission[] = []; try { existing = parseJournal(JSON.parse(localStorage.getItem(nativeJournalKey(owner)) || '[]')); } catch { /* empty journal */ }
-        localStorage.setItem(nativeJournalKey(owner), JSON.stringify([update, ...existing.filter(r => r.hash !== update.hash)].slice(0, 200))); if (current()) paint();
+        const existing = strictSepoliaJournal(localStorage, nativeJournalKey(owner));
+        localStorage.setItem(nativeJournalKey(owner), JSON.stringify(retainSepoliaSubmission(existing, update))); if (current()) paint();
       }, bytes => provider.broadcastTransaction(bytes), () => { assertFreshReview(reviewedAt); return current(); });
       if (current()) notice('Ledger transfer submitted. Verify confirmation on the explorer before retrying.');
+      });
     });
   }); };
   $('ledger-refresh').onclick = () => void run(async () => {

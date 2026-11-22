@@ -6,8 +6,41 @@ import { parseJournal, type TokenSubmission } from './token-journal';
 export const evmTokenKey = (network: EvmNetworkId, owner: string) => `forma.evm.tokens.v1:${evmNetworks[network].chainId}:${getAddress(owner).toLowerCase()}`;
 export const evmJournalKey = (network: EvmNetworkId, owner: string) => `forma.evm.submissions.v1:${evmNetworks[network].chainId}:${getAddress(owner).toLowerCase()}`;
 type ReadStore = Pick<Storage, 'getItem'>;
+export const EVM_TOKEN_LIMIT = 250;
+export const EVM_TOKEN_PAGE_SIZE = 20;
+export const EVM_BALANCE_CONCURRENCY = 3;
+export async function loadEvmPageBalances(tokens: Token[], read: (token: Token) => Promise<bigint>, current: () => boolean, update: (token: Token, balance: bigint | undefined) => void) {
+  const page = tokens.slice(0, EVM_TOKEN_PAGE_SIZE); let next = 0;
+  await Promise.all(Array.from({ length: Math.min(EVM_BALANCE_CONCURRENCY, page.length) }, async () => {
+    while (next < page.length && current()) {
+      const token = page[next++]; let value: bigint | undefined;
+      try { value = await read(token); } catch { value = undefined; }
+      if (!current()) return;
+      update(token, value);
+    }
+  }));
+}
+export function parseEvmTokens(value: unknown): Token[] {
+  if (!Array.isArray(value)) return [];
+  const unique = new Map<string, Token>();
+  for (const entry of value.slice(0, EVM_TOKEN_LIMIT)) {
+    const token = savedTokens([entry])[0];
+    if (token) unique.set(token.address, token);
+  }
+  return [...unique.values()];
+}
+export function evmTokenPage(tokens: Token[], search = '', page = 0) {
+  const query = search.trim().slice(0, 100).toLowerCase();
+  const matching = tokens.filter(token => [token.name, token.symbol, token.address].some(value => value.toLowerCase().includes(query)));
+  const pages = Math.max(1, Math.ceil(matching.length / EVM_TOKEN_PAGE_SIZE));
+  const selected = Math.max(0, Math.min(pages - 1, Number.isSafeInteger(page) ? page : 0));
+  return { tokens: matching.slice(selected * EVM_TOKEN_PAGE_SIZE, (selected + 1) * EVM_TOKEN_PAGE_SIZE), total: matching.length, page: selected, pages };
+}
 export function readEvmTokens(store: ReadStore, network: EvmNetworkId, owner: string): Token[] {
-  try { return savedTokens(JSON.parse(store.getItem(evmTokenKey(network, owner)) || '[]')); } catch { return []; }
+  try {
+    const raw = store.getItem(evmTokenKey(network, owner)) || '[]';
+    return raw.length > 500_000 ? [] : parseEvmTokens(JSON.parse(raw));
+  } catch { return []; }
 }
 export function readEvmJournal(store: ReadStore, network: EvmNetworkId, owner: string): TokenSubmission[] {
   const raw = store.getItem(evmJournalKey(network, owner));

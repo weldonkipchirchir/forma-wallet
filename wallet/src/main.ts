@@ -2,6 +2,9 @@ import { enhanceCards, mountEntryTabs } from './ui-panels';
 import { scrubSecretInputs } from './secret-inputs';
 import { networkAsset, networkHeading, usesNativeWorkspace, supportsPage, savedNetwork, networkIds, isNetworkId, type NetworkId } from './network-context';
 import { isAdditionalEvm } from './evm-networks';
+import { mountNetworkManager } from './network-manager';
+import { preferredNetworks } from './network-preferences';
+import { mountDemoCards } from './demo-cards-ui';
 import { preserveImportedWallet, savedWalletLabel } from './wallet-migration';
 import { ledgerMarkup, mountLedger } from './ledger';
 import { walletErrorMessage } from './error-message';
@@ -10,7 +13,9 @@ import { backupStage, recordBackup, backupGuidance } from './backup-status';
 import { inspectSubmissions, submissionDetail, submitTracked } from './transaction-reliability';
 import { nativeJournalKey, parseJournal, type TokenSubmission } from './token-journal';
 import { feePresets, formatGwei, replacementTotal, type FeePreset } from './fees';
+import { simulationFailure } from './simulation';
 import { assertNonceFree, earlierPendingCount } from './nonce-safety';
+import { withSepoliaSendLock, assertSepoliaNonceFree, strictSepoliaJournal, retainSepoliaSubmission } from './sepolia-send';
 import { planReplacement, replacementBlockedReason, type ReplacementIntent, type ReplacementPlan } from './replacements';
 import { watchMarkup, mountWatch, watchReadApi } from './watch-only';
 import { contactsMarkup, mountContacts, contactOptions, loadContacts, contactNotice, contactsKey } from './contacts';
@@ -52,6 +57,8 @@ let disposeTokens: (() => void) | undefined;
 let disposeLedger: (() => void) | undefined;
 let disposeMulti: (() => void) | undefined;
 let disposeEvm: (() => void) | undefined;
+let disposeNetworks: (() => void) | undefined;
+let disposeCards: (() => void) | undefined;
 let disposeWatch: (() => void) | undefined;
 let disposeTokenSummary: (() => void) | undefined;
 let historyNotice = 'Refresh to load on-chain activity.';
@@ -94,6 +101,8 @@ function updateAmountVisibility() {
   if (portfolioToggle) { portfolioToggle.textContent = amountsHidden ? 'Show holdings' : 'Hide holdings'; portfolioToggle.setAttribute('aria-pressed', String(amountsHidden)); }
 }
 const pages: Record<string, { title: string; subtitle: string; icon: string }> = {
+  networks: { title: 'Choose your network.', subtitle: 'Search supported testnets, save favorites and manage your network list.', icon: '⊞' },
+  cards: { title: 'Explore virtual cards.', subtitle: 'Demo controls and synthetic purchases. No real payments or issued cards.', icon: '▱' },
   tokens: { title: 'More assets. Same wallet.', subtitle: 'Track and transfer ERC-20 tokens on Ethereum Sepolia.', icon: 'T' },
   portfolio: { title: 'Your portfolio, at a glance.', subtitle: 'Holdings and activity for your current wallet.', icon: '◈' },
   overview: { title: 'Your money. Your move.', subtitle: 'A simple home for your digital assets.', icon: '▦' },
@@ -145,6 +154,14 @@ function loadHistory() {
 function persistHistory() { if (active) localStorage.setItem(historyKey(active.address), JSON.stringify(history)); }
 function clearSecrets() { clearTimeout(revealTimer); document.getElementById('phrase-display')?.replaceChildren(); document.getElementById('key-display')?.replaceChildren(); }
 function navigate(next: string) { if (next === 'multi') next = 'overview'; generation++; clearSecrets(); pending = null; replacementPlan = null; view = next; render(); }
+async function withActiveSepoliaLock(work: () => Promise<void>) {
+  const wallet = active, version = generation;
+  if (!wallet) throw new Error('Unlock your wallet first.');
+  return withSepoliaSendLock(wallet.address, async () => {
+    if (active !== wallet || generation !== version) throw new Error('Wallet or view changed before the send lock was acquired. Review again.');
+    await work();
+  });
+}
 function selectNetwork(choice: NetworkId, next: string) {
   selectedNetwork = choice;
   localStorage.setItem('forma.network.v1', choice);
@@ -204,13 +221,14 @@ function renderReplacementReview() {
   const form = document.getElementById('replacement-form') as HTMLFormElement;
   form.addEventListener('submit', event => {
     event.preventDefault();
-    void task(async () => {
+    void task(async () => withActiveSepoliaLock(async () => {
       if (!active || !replacementPlan) throw new Error('Choose a transfer to replace again.');
       const currentPlan = replacementPlan;
       assertFreshReview(replacementReviewedAt);
       if (!(document.getElementById('verify-replacement') as HTMLInputElement)?.checked) throw new Error('Confirm that you understand the replacement competes with the original transfer.');
       const version = generation;
       requireSepolia((await provider.getNetwork()).chainId);
+      if (version !== generation || !active) throw new Error('Wallet locked or view changed. Nothing was signed.');
       const signer = active.connect(provider);
       const owner = signer.address;
       const latestNonce = await provider.getTransactionCount(owner, 'latest');
@@ -223,10 +241,11 @@ function renderReplacementReview() {
       if (!fresh) throw new Error('The original transfer is no longer in this browser’s journal.');
       const blocked = replacementBlockedReason(fresh);
       if (blocked) throw new Error(blocked);
-      assertNonceFree(rows.filter(row => row.hash.toLowerCase() !== fresh.hash.toLowerCase()), nonce);
+      assertSepoliaNonceFree(owner, nonce, { excludeHash: fresh.hash });
       affordable(BigInt(currentPlan.tx.value ?? 0n), BigInt(currentPlan.tx.gasLimit!), currentPlan.quote.maxFeePerGas, await provider.getBalance(owner));
       if (version !== generation || !active) throw new Error('Wallet locked or view changed. Nothing was signed.');
       const populated = await signer.populateTransaction(currentPlan.tx);
+      if (version !== generation || !active) throw new Error('Wallet locked or view changed. Nothing was signed.');
       if (populated.nonce !== nonce) throw new Error('The nonce changed before signing. Review the replacement again.');
       assertFreshReview(replacementReviewedAt);
       const signed = await signer.signTransaction(populated);
@@ -236,8 +255,8 @@ function renderReplacementReview() {
       const hash = keccak256(signed);
       const entry: TokenSubmission = { hash, contract: ZeroAddress, to: String(currentPlan.tx.to), amount: String(currentPlan.tx.value ?? 0n), decimals: 18, symbol: 'ETH', nonce, timestamp: new Date().toISOString(), status: 'unknown', gasLimit: BigInt(currentPlan.tx.gasLimit!).toString(), maxFeePerGas: currentPlan.quote.maxFeePerGas.toString(), maxPriorityFeePerGas: currentPlan.quote.maxPriorityFeePerGas.toString(), intent: currentPlan.intent, replaces: currentPlan.row.hash };
       const sent = await submitTracked(signed, entry, row => {
-        const existing = nativeSubmissions(owner);
-        localStorage.setItem(nativeJournalKey(owner), JSON.stringify([row, ...existing.filter(candidate => candidate.hash.toLowerCase() !== row.hash.toLowerCase())].slice(0, 200)));
+        const existing = strictSepoliaJournal(localStorage, nativeJournalKey(owner));
+        localStorage.setItem(nativeJournalKey(owner), JSON.stringify(retainSepoliaSubmission(existing, row)));
         if (version === generation) { const list = document.getElementById('eth-submissions'); if (list) list.innerHTML = nativeSubmissionRows(); }
       }, raw => provider.broadcastTransaction(raw), () => version === generation && !!active);
       let linked = true;
@@ -252,7 +271,7 @@ function renderReplacementReview() {
       render();
       const updated = generation;
       void refresh().catch(() => { if (updated !== generation) return; notice = 'Replacement submitted. Balance unavailable; try Refresh.'; render(); });
-    }, form);
+    }), form);
   });
 }
 async function syncHistory(more = false) {
@@ -469,6 +488,8 @@ function render() {
   disposeLedger?.(); disposeLedger = undefined;
   disposeMulti?.(); disposeMulti = undefined;
   disposeEvm?.(); disposeEvm = undefined;
+  disposeNetworks?.(); disposeNetworks = undefined;
+  disposeCards?.(); disposeCards = undefined;
   disposeWatch?.(); disposeWatch = undefined;
   disposeTokenSummary?.(); disposeTokenSummary = undefined;
   root.dataset.page=view; root.dataset.network=selectedNetwork;
@@ -482,8 +503,10 @@ function render() {
   const available = supportsPage(selectedNetwork, view);
   const asset = networkAsset(selectedNetwork);
   const title = active && ['overview','portfolio','transfer','activity','market','tokens','contacts','watch'].includes(view) ? networkHeading(selectedNetwork, view) : page.title;
-  const subtitle = view === 'market' ? `Live ${asset.symbol}/USDT prices and historical candles.` : additionalEvm ? `${asset.network} · ETH and imported ERC-20 tokens for your selected account.` : native ? `${asset.network} · Native ${asset.symbol} accounts from your wallet recovery phrase.` : page.subtitle;
-  const content = !available ? `<section class="card"><h2>${asset.name}: feature unavailable</h2><p>This feature is supported on Ethereum Sepolia only. Native ${asset.symbol} receive, send, activity and market are available from the navigation.</p></section>`
+  const subtitle = view === 'market' ? `Live ${asset.symbol}/USDT prices and historical candles.` : additionalEvm ? `${asset.network} · ${asset.symbol} and imported ERC-20 tokens for your selected account.` : native ? `${asset.network} · Native ${asset.symbol} accounts from your wallet recovery phrase.` : page.subtitle;
+  const content = active && view === 'networks' ? '<section id="network-manager-panel"></section>'
+    : active && view === 'cards' ? '<section id="demo-cards-panel"></section>'
+    : !available ? `<section class="card"><h2>${asset.name}: feature unavailable</h2><p>This feature is not enabled on the selected network. Choose an available feature from the navigation or switch networks.</p></section>`
     : active && view === 'market' ? marketMarkup(selectedNetwork)
     : additionalEvm ? `${networkAccountsMarkup()}<section id="evm-panel"><p role="status">Opening selected network…</p></section>`
     : native ? `${view === 'overview' ? networkAccountsMarkup() : ''}<section id="multi-panel" class="multichain-workspace"><p role="status">Opening selected network…</p></section>`
@@ -492,14 +515,23 @@ function render() {
     : active ? selectedNetwork !== 'eth' ? settings() : dashboard() + portfolio() + tokensMarkup() + marketMarkup('eth') + settings() + contactsMarkup(active.address)
     : onboarding(hasVault);
 
-  root.innerHTML = `<button id="sidebar-backdrop" aria-label="Close navigation" tabindex="-1"></button><aside id="wallet-sidebar"><a class="brand" href="/">◈ <span>forma</span></a><button id="sidebar-toggle" class="sidebar-toggle" aria-controls="wallet-sidebar" title="Toggle sidebar"></button><div class="workspace">PERSONAL WALLET</div><nav aria-label="Wallet navigation">${[['overview','Overview'],['portfolio','Portfolio'],['tokens','Tokens'],['transfer','Send & receive'],['market','Market'],['activity','Activity'],['ledger','Ledger'],['watch','Watch-only'],['contacts','Contacts'],['settings','Recovery & import']].map(([id,label]) => `<button data-view="${id}" title="${supportsPage(selectedNetwork, id) ? label : label + ' (Ethereum only)'}" aria-label="${label}" ${(!active && id !== 'overview') || !supportsPage(selectedNetwork, id) ? 'disabled' : ''} class="${view === id ? 'selected' : ''}" aria-current="${view === id ? 'page' : 'false'}"><span class="nav-icon" aria-hidden="true">${pages[id].icon}</span><span class="nav-label">${label}</span></button>`).join('')}</nav><div class="aside-bottom"><span class="dot"></span> Your keys. Your control.<small>Self-custody, by design.</small></div></aside>
-    <main><header><a href="/" class="entry-brand" aria-label="Forma home"><span aria-hidden="true">&#9672;</span> forma<span class="brand-caption">YOUR PERSONAL WALLET</span></a><button id="mobile-menu-toggle" class="quiet" aria-label="Open navigation" aria-controls="wallet-sidebar">&#9776;</button><div class="crumb">My wallet <span>/</span> ${view === 'multi' ? 'Bitcoin & Solana' : view === 'overview' ? 'Overview' : view === 'transfer' ? 'Send & receive' : view === 'activity' ? 'Activity' : view === 'market' ? 'Market' : view === 'portfolio' ? 'Portfolio' : view === 'tokens' ? 'Tokens' : view === 'contacts' ? 'Contacts' : view === 'watch' ? 'Watch-only' : view === 'ledger' ? 'Ledger' : 'Recovery & import'}</div><div class="header-tools"><label class="theme-control" for="theme-select"><span>Appearance</span><select id="theme-select" aria-label="Appearance">${['system','light','dark'].map(t => `<option value="${t}" ${theme === t ? 'selected' : ''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}</select></label>${active ? `<label class="network-control" for="account-select"><span>Account</span><select id="account-select" aria-label="Wallet account">${accountOptions()}</select></label>` : ''}${active ? `<label class="network-control" for="network-select"><span>Network</span><select id="network-select" aria-label="Wallet network">${networkIds.map(id => [id, networkAsset(id).network]).map(([id,label]) => `<option value="${id}" ${id === (selectedNetwork) ? "selected" : ""}>${label}</option>`).join("")}</select></label>` : ''}<div class="network"><span class="dot"></span> ${networkAsset(selectedNetwork).network} <b>TESTNET</b></div></div></header>
+  root.innerHTML = `<button id="sidebar-backdrop" aria-label="Close navigation" tabindex="-1"></button><aside id="wallet-sidebar"><a class="brand" href="/">◈ <span>forma</span></a><button id="sidebar-toggle" class="sidebar-toggle" aria-controls="wallet-sidebar" title="Toggle sidebar"></button><div class="workspace">PERSONAL WALLET</div><nav aria-label="Wallet navigation">${[['overview','Overview'],['networks','Networks'],['portfolio','Portfolio'],['tokens','Tokens'],['transfer','Send & receive'],['market','Market'],['activity','Activity'],['ledger','Ledger'],['watch','Watch-only'],['contacts','Contacts'],['cards','Cards · demo'],['settings','Recovery & import']].map(([id,label]) => `<button data-view="${id}" title="${supportsPage(selectedNetwork, id) ? label : label + ' (not enabled on this network)'}" aria-label="${label}" ${(!active && id !== 'overview') || !supportsPage(selectedNetwork, id) ? 'disabled' : ''} class="${view === id ? 'selected' : ''}" aria-current="${view === id ? 'page' : 'false'}"><span class="nav-icon" aria-hidden="true">${pages[id].icon}</span><span class="nav-label">${label}</span></button>`).join('')}</nav><div class="aside-bottom"><span class="dot"></span> Your keys. Your control.<small>Self-custody, by design.</small></div></aside>
+    <main><header><a href="/" class="entry-brand" aria-label="Forma home"><span aria-hidden="true">&#9672;</span> forma<span class="brand-caption">YOUR PERSONAL WALLET</span></a><button id="mobile-menu-toggle" class="quiet" aria-label="Open navigation" aria-controls="wallet-sidebar">&#9776;</button><div class="crumb">My wallet <span>/</span> ${view === 'multi' ? 'Bitcoin & Solana' : view === 'cards' ? 'Cards · demo' : view === 'networks' ? 'Networks' : view === 'overview' ? 'Overview' : view === 'transfer' ? 'Send & receive' : view === 'activity' ? 'Activity' : view === 'market' ? 'Market' : view === 'portfolio' ? 'Portfolio' : view === 'tokens' ? 'Tokens' : view === 'contacts' ? 'Contacts' : view === 'watch' ? 'Watch-only' : view === 'ledger' ? 'Ledger' : 'Recovery & import'}</div><div class="header-tools"><label class="theme-control" for="theme-select"><span>Appearance</span><select id="theme-select" aria-label="Appearance">${['system','light','dark'].map(t => `<option value="${t}" ${theme === t ? 'selected' : ''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}</select></label>${active ? `<label class="network-control" for="account-select"><span>Account</span><select id="account-select" aria-label="Wallet account">${accountOptions()}</select></label>` : ''}${active ? `<label class="network-control" for="network-select"><span>Network</span><select id="network-select" aria-label="Wallet network">${networkOptionsMarkup()}</select></label>` : ''}<div class="network"><span class="dot"></span> ${networkAsset(selectedNetwork).network} <b>TESTNET</b></div></div></header>
     <section class="content"><div class="title-row"><div><div class="eyebrow">A LITTLE MORE OWNERSHIP</div><h1>${title}</h1><p>${subtitle}</p></div>${active ? '<button id="lock" class="quiet">⌑ Lock wallet</button>' : '<span class="pill">◈ Self-custody</span>'}</div>
     <div class="test-banner">◇ <span><strong>You’re on a test network.</strong> Use test tokens only. This prototype has not been audited.</span></div>
     <div id="notice" role="status" aria-live="polite">${escape(notice)}</div>
     ${content}
     <footer class="wallet-footer"><div class="footer-brand"><strong>FORMA</strong><span>Your keys. Your control.</span></div><div class="footer-meta"><span id="footer-network"><i class="dot"></i>${networkAsset(selectedNetwork).network}</span><span>Self-custody</span><span class="footer-version">Prototype v0.1</span></div></footer></section></main>`;
   document.getElementById('lock')?.addEventListener('click', lock);
+  if (active && view === 'networks') {
+    disposeNetworks = mountNetworkManager(document.getElementById('network-manager-panel')!, selectedNetwork,
+      network => selectNetwork(network, 'overview'),
+      () => { const select = document.getElementById('network-select'); if (select) select.innerHTML = networkOptionsMarkup(); });
+  }
+  if (active && view === 'cards') {
+    const wallet = active, version = generation;
+    disposeCards = mountDemoCards(document.getElementById('demo-cards-panel')!, wallet.address, () => active === wallet && generation === version);
+  }
   bind();
   updateAmountVisibility();
   updateSidebar();
@@ -511,6 +543,7 @@ function render() {
   document.getElementById('mobile-menu-toggle')!.onclick = () => { mobileMenuOpen = !mobileMenuOpen; updateSidebar(); if (mobileMenuOpen) root.querySelector<HTMLButtonElement>('[data-view]:not(:disabled)')?.focus(); };
   document.getElementById('sidebar-backdrop')!.onclick = () => { mobileMenuOpen = false; updateSidebar(); document.getElementById('mobile-menu-toggle')?.focus(); };
   root.querySelectorAll<HTMLButtonElement>('[data-view]').forEach(button => button.onclick = () => { mobileMenuOpen = false; navigate(button.dataset.view!); });
+  document.getElementById('manage-networks')?.addEventListener('click', () => navigate('networks'));
   const groups = ['wallet-summary', 'transfer-panels', 'activity-panel', 'settings-panel', 'market-panel', 'portfolio-panel', 'tokens-panel', 'contacts-panel', 'watch-panel', 'ledger-panel', 'network-accounts'];
   const visible = view === 'overview' ? [...groups.slice(0, 3), 'network-accounts'] : view === 'transfer' ? ['transfer-panels'] : view === 'activity' ? ['activity-panel'] : view === 'market' ? ['market-panel'] : view === 'portfolio' ? ['portfolio-panel'] : view === 'tokens' ? ['tokens-panel'] : view === 'contacts' ? ['contacts-panel'] : view === 'watch' ? ['watch-panel'] : view === 'ledger' ? ['ledger-panel'] : ['settings-panel'];
   groups.forEach(id => { const el = document.getElementById(id); if (el) el.hidden = !visible.includes(id); });
@@ -608,7 +641,8 @@ function onboarding(hasVault: boolean) {
   <section class="intro auth-story"><div class="eyebrow">A LITTLE MORE OWNERSHIP</div><h2>Your wallet.<br><span>Your way.</span></h2><p>A calm place for your digital assets.<br>Built around one simple idea: you hold the keys.</p><div class="auth-art" aria-hidden="true"><div class="auth-orbit orbit-one"></div><div class="auth-orbit orbit-two"></div><div class="auth-vault"><div class="auth-vault-brand">&#9672; forma</div><span>SELF-CUSTODY</span><div class="auth-key">&#9671;</div><div class="auth-vault-bottom"><span>YOUR KEYS</span><span>YOUR CONTROL</span></div></div><div class="auth-art-tag"><i class="dot"></i> On your device</div></div><div class="auth-promises"><div><b>01</b><strong>Created by you</strong><p>Keys generated locally.</p></div><div><b>02</b><strong>Protected locally</strong><p>An encrypted local vault.</p></div><div><b>03</b><strong>Recovered by you</strong><p>Your backup. Your access.</p></div></div><p class="auth-story-note">Testnet wallet prototype. Use fresh test wallets only.</p></section></div>`;
 }
 
-function networkAccountsMarkup() { return `<section id="network-accounts" class="card"><h2>Your wallet networks</h2><p>EVM networks share your selected Ethereum account address; balances and token contracts stay separate on each chain. Bitcoin and Solana use their own derived addresses. Phrase-backed accounts share your recovery backup.</p><div class="account-network-grid">${networkIds.map(id => `<button type="button" class="quiet" data-account-network="${id}">${escape(networkAsset(id).network)}</button>`).join('')}</div></section>`; }
+function networkOptionsMarkup() { return preferredNetworks(localStorage, selectedNetwork).map(id => `<option value="${id}" ${id === selectedNetwork ? 'selected' : ''}>${escape(networkAsset(id).network)}</option>`).join(''); }
+function networkAccountsMarkup() { const choices = [...new Set([selectedNetwork, ...preferredNetworks(localStorage, selectedNetwork)])].slice(0, 6); return `<section id="network-accounts" class="card"><div class="section-heading"><h2>Your wallet networks</h2><button id="manage-networks" type="button" class="quiet">Manage ${networkIds.length} networks</button></div><p>EVM networks share your selected Ethereum account address; balances and token contracts stay separate on each chain. Bitcoin and Solana use their own derived addresses.</p><div class="account-network-grid">${choices.map(id => `<button type="button" class="quiet" data-account-network="${id}" aria-pressed="${id === selectedNetwork}">${escape(networkAsset(id).network)}</button>`).join('')}</div></section>`; }
 
 function dashboard() {
   const address = active!.address;
@@ -1066,6 +1100,8 @@ function bind() {
       const recipientWarning = savedRecipient || recipientNotice(to, wallet.address, history.filter(t => t.status === 'confirmed' && t.from.toLowerCase() === wallet.address.toLowerCase() && t.to).map(t => t.to));
       requireSepolia((await provider.getNetwork()).chainId);
       const signer = wallet.connect(provider);
+      try { await provider.call({ from: wallet.address, to, value }); }
+      catch (error) { throw new Error(simulationFailure(error)); }
       const gasLimit = await signer.estimateGas({ to, value });
       const fees = await provider.getFeeData();
       if (fees.maxFeePerGas == null || fees.maxPriorityFeePerGas == null) throw new Error('Network fee unavailable. Try again.');
@@ -1080,7 +1116,7 @@ function bind() {
       pending = { to, value, gasLimit, nonce, maxFeePerGas: quotes.market.maxFeePerGas, maxPriorityFeePerGas: quotes.market.maxPriorityFeePerGas, chainId: CHAIN_ID, type: 2 };
       pendingReviewedAt = Date.now();
       const feeOption = (preset: FeePreset, label: string) => `<option value="${preset}" ${preset === 'market' ? 'selected' : ''}>${label} · max ${formatGwei(quotes[preset].maxFeePerGas)} gwei</option>`;
-      document.getElementById('review')!.innerHTML = `<div class="review"><strong>Review your Sepolia transfer</strong><p>To: <code>${to}</code></p><p>Amount: ${formatEther(value)} ETH</p><p>Nonce: <strong>${nonce}</strong></p><label for="fee-choice">Network fee</label><select id="fee-choice">${feeOption('slow', 'Economy')}${feeOption('market', 'Suggested')}${feeOption('fast', 'Priority')}</select><p class="hint" id="fee-detail"></p><p class="recipient-warning" id="fee-warning" hidden></p><p class="recipient-warning">${escape(recipientWarning)}</p>${earlier ? `<p class="recipient-warning">${earlier} earlier local transfer${earlier === 1 ? ' is' : 's are'} still unconfirmed. This transfer uses nonce ${nonce} and can only be mined after ${earlier === 1 ? 'it' : 'them'}.</p>` : ''}<p class="hint">Network: Ethereum Sepolia. Review expires in 2 minutes.</p><label class="check"><input id="verify-eth-recipient" type="checkbox"> I verified the full recipient address and network.</label><button id="confirm-send" class="primary" type="button">Confirm & send test ETH</button><button id="cancel-send" class="quiet" type="button">Cancel</button></div>`;
+      document.getElementById('review')!.innerHTML = `<div class="review"><strong>Review your Sepolia transfer</strong><p>To: <code>${to}</code></p><p>Amount: ${formatEther(value)} ETH</p><p>Nonce: <strong>${nonce}</strong></p><label for="fee-choice">Network fee</label><select id="fee-choice">${feeOption('slow', 'Economy')}${feeOption('market', 'Suggested')}${feeOption('fast', 'Priority')}</select><p class="hint" id="fee-detail"></p><p class="recipient-warning" id="fee-warning" hidden></p><p class="recipient-warning">${escape(recipientWarning)}</p>${earlier ? `<p class="recipient-warning">${earlier} earlier local transfer${earlier === 1 ? ' is' : 's are'} still unconfirmed. This transfer uses nonce ${nonce} and can only be mined after ${earlier === 1 ? 'it' : 'them'}.</p>` : ''}<p class="hint">Simulation: eth_call did not revert. This only detects reverts; it is not a balance-change preview or PPOM-grade coverage.</p><p class="hint">Network: Ethereum Sepolia. Review expires in 2 minutes.</p><label class="check"><input id="verify-eth-recipient" type="checkbox"> I verified the full recipient address and network.</label><button id="confirm-send" class="primary" type="button">Confirm & send test ETH</button><button id="cancel-send" class="quiet" type="button">Cancel</button></div>`;
       const feeChoice = document.getElementById('fee-choice') as HTMLSelectElement;
       const feeDetail = document.getElementById('fee-detail')!;
       const feeWarning = document.getElementById('fee-warning')!;
@@ -1100,7 +1136,7 @@ function bind() {
       feeChoice.addEventListener('change', applyFee);
       applyFee();
       document.getElementById('cancel-send')!.onclick = () => { pending = null; document.getElementById('review')!.replaceChildren(); };
-      confirmSend.onclick = () => void task(async () => {
+      confirmSend.onclick = () => void task(async () => withActiveSepoliaLock(async () => {
         if (!active || !pending) throw new Error('Review the transfer again.');
         assertFreshReview(pendingReviewedAt);
         if (!(document.getElementById('verify-eth-recipient') as HTMLInputElement)?.checked) throw new Error('Confirm that you verified the full recipient address.');
@@ -1111,7 +1147,7 @@ function bind() {
         if (version !== generation || !active) throw new Error('Wallet locked. Review the transfer again.');
         const currentNonce = await provider.getTransactionCount(active.address, 'pending');
         if (currentNonce !== transaction.nonce) throw new Error(`The account’s pending nonce changed (reviewed ${transaction.nonce}, now ${currentNonce}). Review the transfer again.`);
-        assertNonceFree(nativeSubmissions(active.address), transaction.nonce!);
+        assertSepoliaNonceFree(active.address, transaction.nonce!);
         affordable(BigInt(transaction.value ?? 0n), BigInt(transaction.gasLimit!), BigInt(transaction.maxFeePerGas!), await provider.getBalance(active.address));
         // Consume the review once. A provider timeout can be ambiguous; do not retry automatically.
         pending = null;
@@ -1126,8 +1162,8 @@ function bind() {
         if (version !== generation || !active) throw new Error('Wallet locked or view changed. Transfer was not broadcast.');
         const entry: TokenSubmission = { hash: keccak256(signed), contract: ZeroAddress, to: String(transaction.to), amount: String(transaction.value), decimals: 18, symbol: 'ETH', nonce: populated.nonce ?? undefined, timestamp: new Date().toISOString(), status: 'unknown', gasLimit: BigInt(populated.gasLimit ?? transaction.gasLimit!).toString(), maxFeePerGas: BigInt(populated.maxFeePerGas ?? transaction.maxFeePerGas!).toString(), maxPriorityFeePerGas: BigInt(populated.maxPriorityFeePerGas ?? transaction.maxPriorityFeePerGas!).toString(), intent: 'transfer' };
         const sent = await submitTracked(signed, entry, row => {
-          const rows = nativeSubmissions(signer.address);
-          localStorage.setItem(nativeJournalKey(signer.address), JSON.stringify([row, ...rows.filter(r => r.hash !== row.hash)].slice(0, 200)));
+          const rows = strictSepoliaJournal(localStorage, nativeJournalKey(signer.address));
+          localStorage.setItem(nativeJournalKey(signer.address), JSON.stringify(retainSepoliaSubmission(rows, row)));
           if (version === generation) { const list = document.getElementById('eth-submissions'); if (list) list.innerHTML = nativeSubmissionRows(); }
         }, raw => provider.broadcastTransaction(raw), () => version === generation && !!active && revision === sendRevision);
         if (version !== generation) return;
@@ -1135,7 +1171,7 @@ function bind() {
         persistHistory();
         notice = 'Transfer submitted. Check the explorer for confirmation before sending again.';
         render();
-      });
+      }));
     });
   });
 }

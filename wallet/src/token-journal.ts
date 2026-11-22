@@ -1,5 +1,6 @@
 export type SubmissionIntent = 'transfer' | 'speed-up' | 'cancel';
-export type TokenSubmission = { hash: string; contract: string; to: string; amount: string; decimals: number; symbol: string; timestamp: string; status: 'pending' | 'confirmed' | 'failed' | 'unknown'; nonce?: number; confirmations?: number; observation?: 'not-seen' | 'nonce-used' | 'rpc-unavailable'; gasLimit?: string; maxFeePerGas?: string; maxPriorityFeePerGas?: string; replaces?: string; replacedBy?: string; intent?: SubmissionIntent };
+export type SubmissionAction = 'approve' | 'revoke';
+export type TokenSubmission = { hash: string; contract: string; to: string; amount: string; decimals: number; symbol: string; timestamp: string; status: 'pending' | 'confirmed' | 'failed' | 'unknown'; nonce?: number; confirmations?: number; observation?: 'not-seen' | 'nonce-used' | 'rpc-unavailable'; gasLimit?: string; maxFeePerGas?: string; maxPriorityFeePerGas?: string; replaces?: string; replacedBy?: string; intent?: SubmissionIntent; action?: SubmissionAction };
 export const journalKey = (address: string) => `forma.sepolia.token-submissions.v1:${address.toLowerCase()}`;
 export const nativeJournalKey = (address: string) => `forma.sepolia.eth-submissions.v1:${address.toLowerCase()}`;
 export function parseJournal(value: unknown): TokenSubmission[] {
@@ -21,7 +22,8 @@ export function parseJournal(value: unknown): TokenSubmission[] {
     && (r.maxPriorityFeePerGas === undefined || typeof r.maxPriorityFeePerGas === 'string' && /^\d{1,78}$/.test(r.maxPriorityFeePerGas))
     && (r.replaces === undefined || typeof r.replaces === 'string' && /^0x[0-9a-f]{64}$/i.test(r.replaces))
     && (r.replacedBy === undefined || typeof r.replacedBy === 'string' && /^0x[0-9a-f]{64}$/i.test(r.replacedBy))
-    && (r.intent === undefined || ['transfer', 'speed-up', 'cancel'].includes(r.intent)));
+    && (r.intent === undefined || ['transfer', 'speed-up', 'cancel'].includes(r.intent))
+    && (r.action === undefined || ['approve', 'revoke'].includes(r.action)));
 }
 export async function reconcileJournal(rows: TokenSubmission[], getReceipt: (hash: string) => Promise<{ status: number | null } | null>) {
   return Promise.all(rows.map(async row => {

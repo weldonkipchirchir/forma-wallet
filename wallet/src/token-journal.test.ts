@@ -12,11 +12,12 @@ describe('token submission journal', () => {
   });
   it('round-trips fee and replacement metadata while accepting legacy rows', () => {
     const enriched: TokenSubmission = { ...row, nonce: 4, gasLimit: '21000', maxFeePerGas: '3000000000', maxPriorityFeePerGas: '1000000000', replaces: `0x${'4'.repeat(64)}`, replacedBy: `0x${'5'.repeat(64)}`, intent: 'speed-up' };
-    expect(parseJournal([enriched])).toEqual([enriched]);
+    const revocation: TokenSubmission = { ...row, amount: '0', action: 'revoke' };
+    expect(parseJournal([enriched, revocation])).toEqual([enriched, revocation]);
     expect(parseJournal([{ ...row, nonce: 0 }])).toHaveLength(1);
     expect(parseJournal([
       { ...row, gasLimit: '-1' }, { ...row, maxFeePerGas: '1e9' }, { ...row, maxPriorityFeePerGas: 'abc' },
-      { ...row, replaces: '0x1234' }, { ...row, replacedBy: `<script>` }, { ...row, intent: 'swap' },
+      { ...row, replaces: '0x1234' }, { ...row, replacedBy: `<script>` }, { ...row, intent: 'swap' }, { ...row, action: 'transfer' },
     ])).toEqual([]);
   });
   it('reconciles receipts and never mistakes a missing receipt or RPC error for failure', async () => {
