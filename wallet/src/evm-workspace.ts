@@ -8,6 +8,7 @@ import { inspectSubmissions, submissionDetail, submitTracked } from './transacti
 import type { TokenSubmission } from './token-journal';
 import { enhanceCards } from './ui-panels';
 import { mountTokenDiscovery } from './token-discovery-ui';
+import { assetLogo, assetTable, readNativeReference } from './asset-display';
 
 const escape = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 type Review = { tx: TransactionRequest; to: string; amount: bigint; token?: Token; created: number };
@@ -31,6 +32,8 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
   const provider = new JsonRpcProvider(config.rpc);
   let disposed = false, busy = false, review: Review | undefined, revision = 0;
   let balance: bigint | undefined;
+  let nativePrice: number | undefined;
+  const priceAbort = new AbortController();
   let tokenQuery = '', tokenPage = 0;
   let disposeDiscovery: (() => void) | undefined, discoveryOpened = false;
   let initialRefresh: Promise<void> = Promise.resolve();
@@ -57,6 +60,11 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
     $('balance').textContent = `${display(balance, config.decimals)} ${config.symbol}`;
     $('privacy').textContent = session.hidden() ? 'Show balances' : 'Hide balances';
     $('privacy').setAttribute('aria-pressed', String(session.hidden()));
+    const holdings = host.querySelector<HTMLElement>('#evm-holdings');
+    if (holdings) holdings.innerHTML = assetTable([
+      { id: 'native', symbol: config.symbol, name: `${config.network} · native gas asset`, amount: balance === undefined ? undefined : formatUnits(balance, config.decimals), usd: balance !== undefined && nativePrice !== undefined ? Number(formatUnits(balance, config.decimals)) * nativePrice : undefined, verified: true },
+      ...tokens().map(token => ({ id: token.address, symbol: token.symbol, name: `${token.name} · unverified`, amount: balances.get(token.address) === undefined ? undefined : formatUnits(balances.get(token.address)!, token.decimals) })),
+    ], session.hidden());
     for (const token of visibleTokens().tokens) {
       const el = host.querySelector<HTMLElement>(`[data-evm-balance="${token.address}"]`);
       if (el) el.textContent = session.hidden() ? '••••••' : !balances.has(token.address) ? 'Not loaded · refresh page' : `${display(balances.get(token.address), token.decimals)} ${token.symbol}`;
@@ -70,7 +78,7 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
     if (!current()) return;
     const page = visibleTokens(); tokenPage = page.page;
     $('token-count').textContent = `${tokens().length} / ${EVM_TOKEN_LIMIT} tracked · ${page.total} matching · page ${page.page + 1} of ${page.pages}`;
-    $('token-list').innerHTML = page.tokens.map(token => `<div class="asset-row"><div><strong>${escape(token.symbol)}</strong><p>${escape(token.name)} · unverified</p><code>${token.address}</code></div><strong data-evm-balance="${token.address}">Not loaded · refresh page</strong><button type="button" class="quiet" data-evm-remove="${token.address}">Remove tracking</button></div>`).join('') || '<p>No tokens match this search. Import a verified contract on the selected network.</p>';
+    $('token-list').innerHTML = page.tokens.map(token => `<div class="asset-row">${assetLogo(token.symbol)}<div><strong>${escape(token.symbol)}</strong><p>${escape(token.name)} · unverified</p><code>${token.address}</code></div><strong data-evm-balance="${token.address}">Not loaded · refresh page</strong><button type="button" class="quiet" data-evm-remove="${token.address}">Remove tracking</button></div>`).join('') || '<p>No tokens match this search. Import a verified contract on the selected network.</p>';
     ($('previous') as HTMLButtonElement).disabled = busy || page.page === 0;
     ($('next') as HTMLButtonElement).disabled = busy || page.page + 1 >= page.pages;
     $('token-list').querySelectorAll<HTMLButtonElement>('[data-evm-remove]').forEach(button => button.onclick = () => {
@@ -96,7 +104,8 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
     } finally { if (current()) { busy = false; controls(); inventory(); } }
   }
   async function refreshVisibleBalances() {
-    await loadEvmPageBalances(visibleTokens().tokens,
+    const rows = ['overview', 'portfolio'].includes(session.page) ? tokens() : visibleTokens().tokens;
+    for (let offset = 0; offset < rows.length && current(); offset += EVM_TOKEN_PAGE_SIZE) await loadEvmPageBalances(rows.slice(offset, offset + EVM_TOKEN_PAGE_SIZE),
       async token => BigInt(await new Contract(token.address, ERC20_ABI, provider).balanceOf(owner)), current,
       (token, value) => { balances.set(token.address, value); amounts(); });
   }
@@ -208,8 +217,11 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
     const activity = $('history').closest<HTMLElement>('section')!;
     transfer.classList.add('native-transfer-grid'); inventorySection.classList.add('asset-inventory');
     summary.hidden = !['overview', 'portfolio'].includes(session.page);
-    transfer.hidden = !['overview', 'transfer', 'tokens'].includes(session.page);
-    inventorySection.hidden = !['overview', 'portfolio', 'tokens'].includes(session.page);
+    transfer.hidden = session.page !== 'transfer';
+    inventorySection.hidden = session.page !== 'tokens';
+    const holdings = document.createElement('section'); holdings.id = 'evm-holdings'; holdings.className = 'card holdings-shell';
+    holdings.hidden = !['overview', 'portfolio'].includes(session.page); summary.after(holdings);
+    const nativeLogo = document.createElement('div'); nativeLogo.className = 'holdings-native-line'; nativeLogo.innerHTML = assetLogo(config.symbol, true); $('balance').before(nativeLogo); nativeLogo.append($('balance'));
     activity.hidden = !['overview', 'activity'].includes(session.page);
     inventory(); try { history(); } catch (error) { notice((error as Error).message, true); }
     const discoveryHost = document.createElement('div'); discoveryHost.className = 'token-discovery-panel'; inventorySection.append(discoveryHost);
@@ -232,6 +244,7 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
     });
     if (session.page === 'tokens') discoveryOpened = true;
     enhanceCards(host); controls();
+    const badge = inventorySection.querySelector('.ui-card-symbol'); if (badge) badge.innerHTML = assetLogo(config.symbol, true);
     void QRCode.toCanvas($('qr'), `ethereum:${owner}@${config.chainId}`, { width: 180, margin: 2 }).catch(() => {});
   }
   const changed = (event: StorageEvent) => {
@@ -242,5 +255,6 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
   };
   window.addEventListener('storage', changed);
   paint(); initialRefresh = run(refresh);
-  return () => { disposed = true; revision++; review = undefined; disposeDiscovery?.(); window.removeEventListener('storage', changed); provider.destroy(); };
+  if (['overview', 'portfolio'].includes(session.page)) void readNativeReference(config.symbol, priceAbort.signal).then(price => { if (current()) { nativePrice = price; amounts(); } }).catch(() => {});
+  return () => { disposed = true; priceAbort.abort(); revision++; review = undefined; disposeDiscovery?.(); window.removeEventListener('storage', changed); provider.destroy(); };
 }

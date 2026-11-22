@@ -221,3 +221,9 @@ Cards now include an explicitly loaded sample portfolio, token-to-demo-USD fundi
 TRON Nile provides phrase-derived receive addresses, pinned genesis checks, native TRX balances and bounded TRC-20 import/discovery. It is read-only: signing, sends, staking and real card funding remain unavailable. Imported Ethereum-only keys are excluded. No live funded TRON test has been performed.
 
 Searchable keyboard-accessible custom pickers replace native single-select menus. Responsive card layouts were checked at 390px and 1440px with synthetic balances in light and dark themes. Static token/card guides, canonical metadata, robots.txt and sitemap.xml improve crawlability without promising search ranking.
+
+### Network holdings and card walkthrough
+
+Overview and Portfolio share an asset table across ETH, added EVM testnets, BTC, SOL and TRON: native and tracked token amounts, hypothetical native USD references and an explicitly partial priced subtotal. Unknown contract prices remain unavailable, not zero or a dollar peg inferred from the symbol. EVM overview refreshes all tracked contracts in batches of 20 with at most three requests in flight. Native reference prices are Coinbase snapshots, refreshed when reopening the view; test assets have no redeemable value. Known native assets and sample-card assets use local SVG logos. Unverified contracts use a neutral token icon to avoid impersonating an issuer.
+
+To demonstrate card funding: open Cards demo, load sample portfolio, create/select a demo card, choose USDT and enter 100, review, then confirm. The displayed 1% fee yields 99 imaginary USD on the card. Card-to-token works in reverse. Actual on-chain tokens never move. Adding/discovering a token affects display only; discovery remains partial and requires explicit confirmation.

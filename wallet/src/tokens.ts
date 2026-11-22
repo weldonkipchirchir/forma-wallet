@@ -1,3 +1,5 @@
+import { assetLogo, assetTable, readNativeReference } from './asset-display';
+import './tokens-layout.css';
 import { inspectSubmissions, submissionDetail, submitTracked } from './transaction-reliability';
 import { assertSepoliaNonceFree, retainSepoliaSubmission, strictSepoliaJournal, withSepoliaSendLock } from './sepolia-send';
 import { contactOptions, contactNotice, loadContacts } from './contacts';
@@ -13,7 +15,7 @@ import { ERC20_ABI, loadTokens, savedTokens, tokenKey, tokenAddress, tokenAmount
 
 const escape = (v: string) => v.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 export function tokensMarkup() {
-  return `<section id="tokens-panel" class="asset-workspace"><section class="card asset-inventory"><div class="section-heading"><div><div class="eyebrow">YOUR ASSETS · ETHEREUM SEPOLIA</div><h2>Token collection</h2></div><button id="tokens-refresh" class="quiet">Refresh tokens</button></div><p>Track ERC-20 tokens by their Sepolia contract address. Names and symbols are self-reported by contracts; verify the full address independently. Test token prices are unavailable.</p><details class="asset-import"><summary>＋ Add a token</summary><form id="token-import"><label for="token-contract">Token contract address</label><input id="token-contract" placeholder="0x…" required autocomplete="off"><button class="primary">Validate & add token</button></form><p class="hint">Verify the full Sepolia contract address independently.</p></details><p id="token-notice" role="status" aria-live="polite"></p><button id="tokens-hidden-toggle" class="quiet">Show hidden tokens</button><div id="token-list" class="asset-list"></div></section>
+  return `<section id="tokens-panel" class="asset-workspace"><section class="card asset-inventory"><div class="section-heading"><div><div class="eyebrow">YOUR ASSETS · ETHEREUM SEPOLIA</div><h2>Your token collection</h2></div><button id="tokens-refresh" class="quiet">Refresh tokens</button></div><p>Track ERC-20 tokens by their Sepolia contract address. Names and symbols are self-reported by contracts; verify the full address independently. Test token prices are unavailable.</p><details class="asset-import"><summary>＋ Add a token</summary><form id="token-import"><label for="token-contract">Token contract address</label><input id="token-contract" placeholder="0x…" required autocomplete="off"><button class="primary">Validate & add token</button></form><p class="hint">Verify the full Sepolia contract address independently.</p></details><p id="token-notice" role="status" aria-live="polite"></p><div class="eth-token-toolbar"><label class="eth-token-search" for="token-search"><span>Search collection</span><input id="token-search" type="search" placeholder="Name, symbol or contract" autocomplete="off" maxlength="80"></label><button id="tokens-hidden-toggle" type="button" class="quiet">Show hidden tokens</button></div><p id="token-collection-count" class="hint"></p><div id="token-list" class="asset-list"></div></section>
   <div class="portfolio-grid lower asset-transfer-grid"><section class="card"><h2>Send a token</h2><form id="token-send"><label for="token-select">Token</label><select id="token-select" required></select><label for="token-contact">Saved recipient (optional)</label><select id="token-contact"></select><label for="token-recipient">Recipient address</label><input id="token-recipient" required placeholder="0x…" autocomplete="off"><label for="token-amount">Token amount</label><input id="token-amount" required inputmode="decimal" placeholder="0.00" autocomplete="off"><p class="hint">Gas is paid in Sepolia ETH. This sends tokens directly; it does not create an allowance.</p><button class="primary">Review token transfer</button></form><div id="token-review"></div></section><section class="card asset-receive"><h2>Receive tokens</h2><p>Use your existing Ethereum Sepolia wallet address for all supported ERC-20 tokens.</p><code id="token-receive-address" class="token-address"></code><p class="hint">Choose Ethereum Sepolia at the sender. Importing a token only adds it to your display; you can receive before importing.</p><p>USD price and profit/loss: unavailable for these test tokens.</p></section></div>
   <section class="card approvals-card" id="approvals-panel"><div class="section-heading"><div><div class="eyebrow">PERMISSIONS · ETHEREUM SEPOLIA</div><h2>Token approvals</h2></div><button id="approvals-scan" class="quiet" type="button">Scan tracked tokens</button></div><p class="hint">Finds allowances created by this wallet in up to 200 recent outgoing indexed transactions, then checks each one on-chain. Revoking sends <code>approve(spender, 0)</code>: it moves no tokens but costs gas. This is basic <code>eth_call</code> revert detection, not PPOM-grade coverage or a complete allowance index.</p><p id="approval-notice" role="status" aria-live="polite"></p><div id="approval-list"></div><details class="asset-import"><summary>Check a specific spender</summary><form id="approval-check"><label for="approval-token">Token</label><select id="approval-token" required></select><label for="approval-spender">Spender address</label><input id="approval-spender" placeholder="0x…" required maxlength="42" autocomplete="off"><button class="primary" type="submit">Check allowance</button></form><div id="approval-check-result"></div></details><div id="approval-review"></div></section>
   <section class="card activity"><h2>Submitted token activity</h2><p class="hint">Locally recorded transfers and revocations, including uncertain broadcasts. Unknown does not mean failed. Check the explorer before retrying. Receipt status is supplied by the RPC.</p><div id="token-submissions"></div><div class="section-heading"><h2>Token transfer history</h2><button id="token-history-refresh" class="quiet">Refresh history</button></div><p class="hint">Indexed ERC-20 transfers for your tracked contracts. An indexer may lag. Open the explorer to verify confirmation.</p><div id="token-history"></div><button id="token-history-more" class="quiet" hidden>Load older token transfers</button></section></section>`;
@@ -56,7 +58,7 @@ export function mountTokens(host: HTMLElement, provider: JsonRpcProvider, wallet
     return submissions.some(row => row.action === 'revoke' && row.contract.toLowerCase() === token.address.toLowerCase() && row.to.toLowerCase() === spender.toLowerCase() && (row.status === 'pending' || row.status === 'unknown'));
   }
   function approvalRow(finding: { token: Token; spender: string; value: bigint }) {
-    return `<div class="token-row asset-row approval-row"><span class="asset-avatar" aria-hidden="true">◇</span><div class="asset-identity"><strong>${escape(finding.token.symbol)} allowance</strong><p>Spender: <code>${escape(finding.spender)}</code></p><p class="approval-warning">${escape(approvalWarning(finding.value, finding.token.decimals, finding.token.symbol, finding.spender))}</p></div><div class="token-row-value"><strong>${escape(allowanceLabel(finding.value, finding.token.decimals, finding.token.symbol))}</strong>${pendingRevoke(finding.token, finding.spender) ? '<p>Revocation submitted; waiting for a receipt. Scan again after confirmation.</p>' : `<button class="quiet" type="button" data-revoke-token="${finding.token.address}" data-revoke-spender="${finding.spender}">Review revocation</button>`}</div></div>`;
+    return `<div class="token-row asset-row approval-row">${assetLogo(finding.token.symbol)}<div class="asset-identity"><strong>${escape(finding.token.symbol)} allowance</strong><p>Spender: <code>${escape(finding.spender)}</code></p><p class="approval-warning">${escape(approvalWarning(finding.value, finding.token.decimals, finding.token.symbol, finding.spender))}</p></div><div class="token-row-value"><strong>${escape(allowanceLabel(finding.value, finding.token.decimals, finding.token.symbol))}</strong>${pendingRevoke(finding.token, finding.spender) ? '<p>Revocation submitted; waiting for a receipt. Scan again after confirmation.</p>' : `<button class="quiet" type="button" data-revoke-token="${finding.token.address}" data-revoke-spender="${finding.spender}">Review revocation</button>`}</div></div>`;
   }
   function paintApprovals() {
     if (!valid()) return;
@@ -186,9 +188,13 @@ export function mountTokens(host: HTMLElement, provider: JsonRpcProvider, wallet
   $('token-receive-address').textContent = wallet.address;
   $('token-contact').innerHTML = contactOptions(wallet.address);
   $('token-contact').addEventListener('change', () => { const input = host.querySelector('#token-recipient') as HTMLInputElement; input.value = field('token-contact'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  $('token-search').addEventListener('input', list);
   function list() {
     const selected = field('token-select');
-    $('token-list').innerHTML = tokens.length ? tokens.filter(t => showHidden || !t.hidden).map(t => `<div class="token-row asset-row"><span class="asset-avatar" aria-hidden="true">◇</span><div class="asset-identity"><strong>${escape(t.symbol)} <span class="pill">Unverified test token</span></strong><p>${escape(t.name)}</p><code>${t.address}</code></div><div class="token-row-value"><strong>${hideBalance() ? '••••' : balances.has(t.address) ? escape(formatUnits(balances.get(t.address)!, t.decimals)) : '—'} ${escape(t.symbol)}</strong><p>Price unavailable</p><button class="quiet token-hide" data-hide-token="${t.address}">${t.hidden ? 'Unhide token' : 'Hide token'}</button></div></div>`).join('') : '<p>No tokens tracked yet. Add a Sepolia ERC-20 contract above.</p>';
+    const query = field('token-search').trim().toLowerCase();
+    const visible = tokens.filter(t => (showHidden || !t.hidden) && [t.symbol, t.name, t.address].some(value => value.toLowerCase().includes(query)));
+    $('token-collection-count').textContent = `${visible.length} shown · ${tokens.length} tracked · Ethereum Sepolia`;
+    $('token-list').innerHTML = visible.length ? visible.map(t => `<div class="token-row asset-row">${assetLogo(t.symbol)}<div class="asset-identity"><strong>${escape(t.symbol)} <span class="pill">Unverified test token</span></strong><p>${escape(t.name)}</p><code>${t.address}</code></div><div class="token-row-value"><strong>${hideBalance() ? '••••' : balances.has(t.address) ? escape(formatUnits(balances.get(t.address)!, t.decimals)) : '—'} ${escape(t.symbol)}</strong><p>Price unavailable</p><button class="quiet token-hide" data-hide-token="${t.address}">${t.hidden ? 'Unhide token' : 'Hide token'}</button></div></div>`).join('') : '<div class="eth-token-empty"><strong>No matching assets</strong><p>Search another name or add a verified Sepolia contract address above.</p></div>';
     host.querySelectorAll<HTMLButtonElement>('[data-hide-token]').forEach(button => button.onclick = () => {
       if (working) return;
       const next = tokens.map(t => t.address === button.dataset.hideToken ? { ...t, hidden: !t.hidden } : t);
@@ -365,20 +371,29 @@ export function mountTokens(host: HTMLElement, provider: JsonRpcProvider, wallet
 
 export function mountTokenSummary(host: HTMLElement, provider: JsonRpcProvider, address: string, hidden: () => boolean) {
   let disposed = false;
+  const abort = new AbortController();
   const tokens = loadTokens(address).filter(t => !t.hidden);
   const values = new Map<string, bigint>();
+  let native: bigint | undefined, reference: number | undefined;
+  const parent = host.parentElement;
   const paint = () => {
     if (disposed) return;
-    host.innerHTML = '<h2>Tracked ERC-20 assets</h2><p class="hint">Sepolia only. Token prices and profit/loss are unavailable; the USD estimate above covers native ETH only.</p>' + (tokens.length ? tokens.map(t => `<div class="token-row asset-row"><span class="asset-avatar" aria-hidden="true">◇</span><div class="asset-identity"><strong>${escape(t.symbol)}</strong><p>${escape(t.name)} · Unverified test token</p><code>${t.address}</code></div><div>${hidden() ? '••••' : values.has(t.address) ? escape(formatUnits(values.get(t.address)!, t.decimals)) : '—'} ${escape(t.symbol)}</div></div>`).join('') : '<p>No ERC-20 tokens tracked yet. Open Tokens to add a contract.</p>');
+    const amount = native === undefined ? undefined : formatEther(native);
+    host.innerHTML = assetTable([{ id: 'native-eth', symbol: 'ETH', name: 'Ethereum Sepolia', amount, verified: true, usd: amount !== undefined && reference !== undefined ? Number(amount) * reference : undefined }, ...tokens.map(t => ({ id: t.address, symbol: t.symbol, name: `${t.name} - Unverified test token`, amount: values.has(t.address) ? formatUnits(values.get(t.address)!, t.decimals) : undefined }))], hidden());
   };
   paint();
   void (async () => {
     try {
       requireSepolia((await provider.getNetwork()).chainId);
-      for (const t of tokens) { if (disposed) return; try { const value = await new Contract(t.address, ERC20_ABI, provider).balanceOf(address); values.set(t.address, BigInt(value)); } catch { /* show unavailable */ } }
+      if (disposed) return;
+      await Promise.allSettled([
+        provider.getBalance(address).then(value => { if (!disposed) { native = value; paint(); } }),
+        readNativeReference('ETH', abort.signal).then(value => { if (!disposed) { reference = value; paint(); } }),
+      ]);
+      for (const t of tokens) { if (disposed) return; try { const value = await new Contract(t.address, ERC20_ABI, provider).balanceOf(address); if (!disposed) values.set(t.address, BigInt(value)); } catch { /* show unavailable */ } }
       paint();
-    } catch { if (!disposed) host.append(document.createTextNode('Token balances unavailable; check the network.')); }
+    } catch { if (!disposed) host.append(document.createTextNode('Asset balances unavailable; check the network.')); }
   })();
-  host.parentElement?.addEventListener('portfolio-privacy-change', paint);
-  return () => { disposed = true; host.parentElement?.removeEventListener('portfolio-privacy-change', paint); };
+  parent?.addEventListener('portfolio-privacy-change', paint);
+  return () => { disposed = true; abort.abort(); parent?.removeEventListener('portfolio-privacy-change', paint); };
 }

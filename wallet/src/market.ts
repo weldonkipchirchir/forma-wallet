@@ -1,10 +1,11 @@
 import { networkAsset, type NetworkId } from './network-context';
+import { assetLogo } from './asset-display';
 import { createChart, CandlestickSeries, HistogramSeries, ColorType, type UTCTimestamp } from 'lightweight-charts';
 import { ranges, marketRequest, parseCandles, percentageChange, type Candle } from './market-data';
 
 export function marketMarkup(network: NetworkId = 'eth') {
   const asset = networkAsset(network);
-  return `<section id="market-panel" class="card market-panel"><div class="section-heading"><div><div class="eyebrow">SPOT MARKET · ${asset.symbol} / USDT</div><h2>${asset.name} market</h2></div><span id="market-state" class="pill">Connecting</span></div>
+  return `<section id="market-panel" class="card market-panel"><div class="section-heading"><div><div class="eyebrow">SPOT MARKET · ${asset.symbol} / USDT</div><h2>${assetLogo(asset.symbol, true)} ${asset.name} market</h2></div><span id="market-state" class="pill">Connecting</span></div>
   <div class="market-price-row"><strong id="market-price">— <small>USDT</small></strong><span id="market-day-change">24h change —</span></div>
   <p class="market-disclaimer">Real ${asset.symbol} market data, separate from your ${asset.network} test wallet. Test assets have no monetary value. ALL starts at Binance’s earliest ${asset.symbol}/USDT candle, not the network’s launch.</p>
   <div class="market-changes">${ranges.map(r => `<div><span>${r.label}</span><strong data-market-change="${r.label}">—</strong></div>`).join('')}</div>

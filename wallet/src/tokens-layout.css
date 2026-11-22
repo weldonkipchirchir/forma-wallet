@@ -1,0 +1,24 @@
+/* Ethereum inventory uses the shared asset language without trusting token labels. */
+#tokens-panel .asset-inventory { padding: clamp(16px, 2.4vw, 28px); }
+#tokens-panel .asset-inventory > p { max-width: 76ch; }
+.eth-token-toolbar { display: flex; align-items: end; gap: 12px; margin-top: 18px; }
+.eth-token-search { flex: 1; min-width: 0; display: grid; gap: 6px; }
+.eth-token-search span { font-size: .75rem; opacity: .75; }
+#tokens-panel .eth-token-toolbar button { flex-shrink: 0; margin-bottom: 0; }
+#tokens-panel .asset-import { margin-top: 16px; border: 1px solid var(--border, #65735b55); border-radius: 14px; padding: 12px 14px; }
+#tokens-panel .asset-import summary { cursor: pointer; font-weight: 600; }
+#tokens-panel .asset-import form { margin-top: 12px; }
+#tokens-panel .asset-row { gap: 12px; padding: 16px 0; }
+#tokens-panel .asset-identity { min-width: 0; }
+#tokens-panel .asset-identity code { display: block; overflow-wrap: anywhere; font-size: .7rem; }
+#tokens-panel .token-row-value { min-width: 130px; text-align: right; }
+#tokens-panel .token-row-value strong { overflow-wrap: anywhere; }
+#tokens-panel .token-hide { min-height: 34px; padding: 6px 10px; font-size: .75rem; }
+.eth-token-empty { padding: 28px 16px; text-align: center; border: 1px dashed var(--border, #65735b55); border-radius: 14px; }
+@media (max-width: 560px) {
+ .eth-token-toolbar { align-items: stretch; flex-direction: column; gap: 8px; }
+ #tokens-panel .eth-token-toolbar button { align-self: flex-start; }
+ #tokens-panel .asset-row { display: grid; grid-template-columns: 36px minmax(0, 1fr); }
+ #tokens-panel .token-row-value { grid-column: 2; text-align: left; min-width: 0; }
+ #tokens-panel .asset-identity .pill { display: block; width: fit-content; margin-top: 4px; }
+}
