@@ -9,6 +9,7 @@ import type { TokenSubmission } from './token-journal';
 import { enhanceCards } from './ui-panels';
 import { mountTokenDiscovery } from './token-discovery-ui';
 import { assetLogo, assetTable, readNativeReference } from './asset-display';
+import { createRpcProvider } from './rpc-transport';
 
 const escape = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 type Review = { tx: TransactionRequest; to: string; amount: bigint; token?: Token; created: number };
@@ -29,7 +30,7 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
   current(): boolean; hidden(): boolean; toggleHidden(): void; page: string;
 }) {
   const config = evmNetworks[network], chainId = BigInt(config.chainId), owner = wallet.address;
-  const provider = new JsonRpcProvider(config.rpc);
+  const provider = createRpcProvider(config.rpc);
   let disposed = false, busy = false, review: Review | undefined, revision = 0;
   let balance: bigint | undefined;
   let nativePrice: number | undefined;
