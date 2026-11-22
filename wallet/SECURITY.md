@@ -99,3 +99,9 @@ Added a shared public-environment/header policy, production postbuild artifact s
 ## Follow-up review — 24 October 2026
 
 See [SECURITY-DEEP-DIVE-2026-10-24.md](SECURITY-DEEP-DIVE-2026-10-24.md) for the research-backed findings, patches, validation and remaining mainnet blockers. This is an engineering assessment, not an independent audit.
+
+## November 22 feature validation
+
+The card sandbox uses only published testing PANs with synthetic expiry/CVV, never issuer credentials. Token/card conversions operate on an explicitly loaded imaginary portfolio, fixed illustrative rates and a local integer ledger; no wallet signer, approval or issuer is called. Quotes expire and bind to ledger revisions. Funded deletion is refused. Details hide on timeout/visibility changes. Local state is editable by its owner and is not a real financial ledger.
+
+EVM discovery is opt-in and partial (5,000 blocks, 200 processed logs, 20 contracts). It discloses public address queries to the configured RPC. Positive balances and contract metadata do not establish issuer authenticity. The upstream RPC response size is not bounded by the processed-log limit. TRON Nile uses pinned genesis identity and read-only requests; protobuf signing is deliberately unavailable pending intent-binding validation. Browser fixtures used mocked RPC and public synthetic test vectors; no production wallet, credentials or funds were accessed. Independent agent reviews and unit tests do not constitute an external security audit.

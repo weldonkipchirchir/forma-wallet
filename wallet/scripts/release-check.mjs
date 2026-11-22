@@ -25,7 +25,8 @@ export async function prepareRelease(root) {
       if (info.isSymbolicLink()) throw new Error('Release must not contain symbolic links.');
       if (info.isDirectory()) { await walk(path); continue; }
       const file = relative(dist, path).replaceAll('\\', '/');
-      if (!['.html', '.js', '.css', '.svg', '.png', '.ico', '.woff2'].includes(extname(name)) || name.startsWith('.')) throw new Error(`Unexpected release file: ${file}`);
+      const publicCrawlerFile = file === 'robots.txt' || file === 'sitemap.xml';
+      if ((!publicCrawlerFile && !['.html', '.js', '.css', '.svg', '.png', '.ico', '.woff2'].includes(extname(name))) || name.startsWith('.')) throw new Error(`Unexpected release file: ${file}`);
       const bytes = await readFile(path);
       if (sensitiveMarkers(bytes.toString('utf8'))) throw new Error(`Potential secret marker in built file: ${file}. Inspect privately; do not print its contents.`);
       entries.push({ file, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') });

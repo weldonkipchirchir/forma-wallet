@@ -6,9 +6,10 @@ import { assertFreshReview, assertSignedMatchesReview, recipientNotice, safeToke
 import { allowanceLabel, approvalWarning, approvalScanPage, APPROVAL_SCAN_LIMIT, cursorQuery, parseApprovalTransactions, revokeRequest, type ApprovalFinding } from './approvals';
 import { boundedJson } from './bounded-response';
 import { simulationFailure, tokenSimulation } from './simulation';
+import { mountTokenDiscovery } from './token-discovery-ui';
 import { Contract, formatUnits, formatEther, keccak256, type JsonRpcProvider, type Wallet, type HDNodeWallet, type TransactionRequest } from 'ethers';
 import { CHAIN_ID, requireSepolia, affordable } from './wallet';
-import { ERC20_ABI, loadTokens, tokenKey, tokenAddress, tokenAmount, tokenInterface, parseTokenTransfers, type Token, type TokenTransfer } from './token-data';
+import { ERC20_ABI, loadTokens, savedTokens, tokenKey, tokenAddress, tokenAmount, tokenInterface, parseTokenTransfers, type Token, type TokenTransfer } from './token-data';
 
 const escape = (v: string) => v.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 export function tokensMarkup() {
@@ -21,6 +22,7 @@ export function tokensMarkup() {
 export function mountTokens(host: HTMLElement, provider: JsonRpcProvider, wallet: Wallet | HDNodeWallet, isCurrent: () => boolean, hideBalance: () => boolean) {
   const abort = new AbortController();
   let disposed = false, working = false, revision = 0;
+  let initialRefresh: Promise<void> = Promise.resolve();
   let showHidden = false;
   let reviewedAt = 0;
   let tokens = loadTokens(wallet.address);
@@ -337,8 +339,28 @@ export function mountTokens(host: HTMLElement, provider: JsonRpcProvider, wallet
   $('token-history-refresh').onclick = () => void run(() => refreshHistory());
   $('token-history-more').onclick = () => void run(() => refreshHistory(true));
   list(); history(); paintSubmissions(); paintApprovals();
-  void run(async () => { await refreshBalances(); await refreshHistory(); });
-  return () => { disposed = true; pending = null; approvalPending = null; abort.abort(); };
+  const discoveryHost = document.createElement('div'); discoveryHost.className = 'token-discovery-panel'; host.querySelector('.asset-inventory')!.append(discoveryHost);
+  const disposeDiscovery = mountTokenDiscovery(discoveryHost, {
+    owner: wallet.address, chainId: CHAIN_ID, provider, current: valid, ready: () => initialRefresh,
+    isTracked: token => loadTokens(wallet.address).some(item => item.address.toLowerCase() === token.address.toLowerCase()),
+    onImport: candidate => {
+      if (!valid() || working) throw new Error('Wait for the current operation before importing.');
+      const token = savedTokens([candidate])[0];
+      if (!token) throw new Error('Invalid discovered token metadata.');
+      const existing = loadTokens(wallet.address);
+      if (existing.some(item => item.address.toLowerCase() === token.address.toLowerCase())) throw new Error('Token already tracked.');
+      if (existing.length >= 25) throw new Error('Sepolia token inventory limit reached.');
+      const next = [...existing, token];
+      localStorage.setItem(tokenKey(wallet.address), JSON.stringify(next));
+      if (!valid()) return;
+      tokens = next; revision++; pending = null; approvalPending = null;
+      $('token-review').replaceChildren(); $('approval-review').replaceChildren();
+      list(); history(); paintApprovals();
+      void run(refreshBalances);
+    },
+  });
+  initialRefresh = run(async () => { await refreshBalances(); await refreshHistory(); });
+  return () => { disposed = true; pending = null; approvalPending = null; disposeDiscovery(); abort.abort(); };
 }
 
 export function mountTokenSummary(host: HTMLElement, provider: JsonRpcProvider, address: string, hidden: () => boolean) {

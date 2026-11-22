@@ -2,11 +2,12 @@ import { Contract, JsonRpcProvider, Wallet, HDNodeWallet, ZeroAddress, formatEth
 import QRCode from 'qrcode';
 import { evmNetworks, requireEvmNetwork, type EvmNetworkId } from './evm-networks';
 import { evmTokenKey, evmJournalKey, readEvmTokens, readEvmJournal, retainEvmSubmission, requireResolvedEvm, evmSendLock, evmTokenPage, loadEvmPageBalances, EVM_TOKEN_LIMIT, EVM_TOKEN_PAGE_SIZE } from './evm-assets';
-import { ERC20_ABI, tokenInterface, tokenAddress, tokenAmount, type Token } from './token-data';
+import { ERC20_ABI, tokenInterface, tokenAddress, tokenAmount, savedTokens, type Token } from './token-data';
 import { assertFreshReview, assertSignedMatchesReview, safeTokenText } from './transfer-safety';
 import { inspectSubmissions, submissionDetail, submitTracked } from './transaction-reliability';
 import type { TokenSubmission } from './token-journal';
 import { enhanceCards } from './ui-panels';
+import { mountTokenDiscovery } from './token-discovery-ui';
 
 const escape = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 type Review = { tx: TransactionRequest; to: string; amount: bigint; token?: Token; created: number };
@@ -31,6 +32,8 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
   let disposed = false, busy = false, review: Review | undefined, revision = 0;
   let balance: bigint | undefined;
   let tokenQuery = '', tokenPage = 0;
+  let disposeDiscovery: (() => void) | undefined, discoveryOpened = false;
+  let initialRefresh: Promise<void> = Promise.resolve();
   const balances = new Map<string, bigint | undefined>();
   const current = () => !disposed && session.current() && host.isConnected;
   const live = () => { if (!current()) throw new Error('Wallet locked or account/network changed. Nothing further was signed or submitted.'); };
@@ -173,6 +176,7 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
     });
   }
   function paint() {
+    disposeDiscovery?.(); disposeDiscovery = undefined;
     review = undefined; revision++;
     const list = tokens();
     host.innerHTML = `<p id="evm-notice" class="hint" role="status">Loading ${escape(config.network)}…</p>
@@ -208,6 +212,25 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
     inventorySection.hidden = !['overview', 'portfolio', 'tokens'].includes(session.page);
     activity.hidden = !['overview', 'activity'].includes(session.page);
     inventory(); try { history(); } catch (error) { notice((error as Error).message, true); }
+    const discoveryHost = document.createElement('div'); discoveryHost.className = 'token-discovery-panel'; inventorySection.append(discoveryHost);
+    disposeDiscovery = mountTokenDiscovery(discoveryHost, {
+      owner, chainId, provider, current, ready: () => initialRefresh,
+      isTracked: token => tokens().some(item => item.address.toLowerCase() === token.address.toLowerCase()),
+      autoStart: session.page === 'tokens' && !discoveryOpened,
+      onImport: candidate => {
+        live(); if (busy) throw new Error('Wait for the current wallet operation before importing.');
+        const token = savedTokens([candidate])[0];
+        if (!token) throw new Error('Invalid discovered token metadata.');
+        const existing = tokens();
+        if (existing.some(item => item.address.toLowerCase() === token.address.toLowerCase())) throw new Error('This token is already tracked.');
+        if (existing.length >= EVM_TOKEN_LIMIT) throw new Error('Token inventory limit reached.');
+        // The write is synchronous and precedes repaint; failed storage cannot report success.
+        localStorage.setItem(evmTokenKey(network, owner), JSON.stringify([...existing, token]));
+        revision++; review = undefined; tokenQuery = ''; tokenPage = Math.floor(existing.length / EVM_TOKEN_PAGE_SIZE);
+        paint(); void run(refresh);
+      },
+    });
+    if (session.page === 'tokens') discoveryOpened = true;
     enhanceCards(host); controls();
     void QRCode.toCanvas($('qr'), `ethereum:${owner}@${config.chainId}`, { width: 180, margin: 2 }).catch(() => {});
   }
@@ -218,6 +241,6 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
     }
   };
   window.addEventListener('storage', changed);
-  paint(); void run(refresh);
-  return () => { disposed = true; revision++; review = undefined; window.removeEventListener('storage', changed); provider.destroy(); };
+  paint(); initialRefresh = run(refresh);
+  return () => { disposed = true; revision++; review = undefined; disposeDiscovery?.(); window.removeEventListener('storage', changed); provider.destroy(); };
 }

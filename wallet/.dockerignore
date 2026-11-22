@@ -9,6 +9,8 @@
 !security-policy.d.mts
 !src/
 !src/**
+!public/
+!public/**
 !scripts/
 !scripts/**
 !deploy/

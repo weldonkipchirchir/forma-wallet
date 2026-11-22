@@ -77,4 +77,20 @@ describe('production build boundaries', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+  it('allows only the two approved crawler documents, not arbitrary text files', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'forma-release-'));
+    try {
+      await mkdir(join(root, 'dist'));
+      await writeFile(join(root, 'dist', 'index.html'), '<html></html>');
+      await writeFile(join(root, 'dist', 'app.js'), 'public');
+      await writeFile(join(root, 'dist', 'robots.txt'), 'User-agent: *\nAllow: /');
+      await writeFile(join(root, 'dist', 'sitemap.xml'), '<urlset></urlset>');
+      expect(await prepareRelease(root)).toBe(4);
+      await writeFile(join(root, 'dist', 'notes.txt'), 'unapproved');
+      await expect(prepareRelease(root)).rejects.toThrow('Unexpected release file');
+    } finally {
+      if (!resolve(root).startsWith(resolve(tmpdir()) + sep + 'forma-release-')) throw new Error('Unexpected temporary path');
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

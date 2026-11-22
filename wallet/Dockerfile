@@ -4,6 +4,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY index.html tsconfig.json vite.config.ts security-policy.mjs security-policy.d.mts ./
 COPY src ./src
+COPY public ./public
 COPY scripts ./scripts
 RUN npm run build
 

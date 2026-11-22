@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+Disallow: /.release/
+Sitemap: https://forma-wallet.vercel.app/sitemap.xml

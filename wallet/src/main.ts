@@ -5,6 +5,7 @@ import { isAdditionalEvm } from './evm-networks';
 import { mountNetworkManager } from './network-manager';
 import { preferredNetworks } from './network-preferences';
 import { mountDemoCards } from './demo-cards-ui';
+import { installSelectPickers } from './select-picker';
 import { preserveImportedWallet, savedWalletLabel } from './wallet-migration';
 import { ledgerMarkup, mountLedger } from './ledger';
 import { walletErrorMessage } from './error-message';
@@ -59,6 +60,7 @@ let disposeMulti: (() => void) | undefined;
 let disposeEvm: (() => void) | undefined;
 let disposeNetworks: (() => void) | undefined;
 let disposeCards: (() => void) | undefined;
+let disposeTron: (() => void) | undefined;
 let disposeWatch: (() => void) | undefined;
 let disposeTokenSummary: (() => void) | undefined;
 let historyNotice = 'Refresh to load on-chain activity.';
@@ -490,6 +492,7 @@ function render() {
   disposeEvm?.(); disposeEvm = undefined;
   disposeNetworks?.(); disposeNetworks = undefined;
   disposeCards?.(); disposeCards = undefined;
+  disposeTron?.(); disposeTron = undefined;
   disposeWatch?.(); disposeWatch = undefined;
   disposeTokenSummary?.(); disposeTokenSummary = undefined;
   root.dataset.page=view; root.dataset.network=selectedNetwork;
@@ -500,6 +503,7 @@ function render() {
   const page = pages[view] || pages.overview;
   const native = !!active && usesNativeWorkspace(selectedNetwork, view);
   const additionalEvm = !!active && isAdditionalEvm(selectedNetwork) && ['overview', 'portfolio', 'transfer', 'tokens', 'activity'].includes(view);
+  const tron = !!active && selectedNetwork === 'tron' && ['overview', 'portfolio', 'transfer', 'tokens', 'activity'].includes(view);
   const available = supportsPage(selectedNetwork, view);
   const asset = networkAsset(selectedNetwork);
   const title = active && ['overview','portfolio','transfer','activity','market','tokens','contacts','watch'].includes(view) ? networkHeading(selectedNetwork, view) : page.title;
@@ -508,6 +512,7 @@ function render() {
     : active && view === 'cards' ? '<section id="demo-cards-panel"></section>'
     : !available ? `<section class="card"><h2>${asset.name}: feature unavailable</h2><p>This feature is not enabled on the selected network. Choose an available feature from the navigation or switch networks.</p></section>`
     : active && view === 'market' ? marketMarkup(selectedNetwork)
+    : tron ? `${networkAccountsMarkup()}<section id="tron-panel"><p role="status">Opening TRON Nile…</p></section>`
     : additionalEvm ? `${networkAccountsMarkup()}<section id="evm-panel"><p role="status">Opening selected network…</p></section>`
     : native ? `${view === 'overview' ? networkAccountsMarkup() : ''}<section id="multi-panel" class="multichain-workspace"><p role="status">Opening selected network…</p></section>`
     : selectedNetwork !== 'eth' && ['watch','contacts'].includes(view) ? `<section id="${view === 'watch' ? 'watch-panel' : 'contacts-panel'}" class="card">Loading network accounts…</section>`
@@ -551,6 +556,17 @@ function render() {
   if (selectedNetwork === 'eth' && active && view === 'tokens') { const wallet = active; const version = generation; disposeTokens = mountTokens(document.getElementById('tokens-panel')!, provider, wallet, () => active === wallet && version === generation, () => amountsHidden); }
   if (selectedNetwork === 'eth' && active && view === 'portfolio') disposeTokenSummary = mountTokenSummary(document.getElementById('token-assets-summary')!, provider, active.address, () => amountsHidden);
   document.getElementById('open-ledger')?.addEventListener('click', () => { selectedNetwork = 'eth'; notice = 'Hardware wallet mode. Your local wallet remains locked.'; navigate('ledger'); });
+  if (tron && active) {
+    const wallet = active, version = generation, host = document.getElementById('tron-panel')!;
+    void import('./tron-workspace').then(module => {
+      if (!host.isConnected || generation !== version || active !== wallet || selectedNetwork !== 'tron') return;
+      disposeTron = module.mountTronWorkspace(host, wallet, {
+        current: () => active === wallet && generation === version && selectedNetwork === 'tron',
+        hidden: () => amountsHidden, page: view,
+        toggleHidden: () => { amountsHidden = !amountsHidden; localStorage.setItem('forma.amounts.hidden', String(amountsHidden)); },
+      });
+    }).catch(() => { if (host.isConnected) host.textContent = 'TRON Nile could not load. Try refreshing.'; });
+  }
   if (additionalEvm && active && isAdditionalEvm(selectedNetwork)) {
     const network = selectedNetwork, wallet = active, version = generation;
     const host = document.getElementById('evm-panel')!;
@@ -596,6 +612,14 @@ function render() {
   }
   if (selectedNetwork === 'eth' && active && view === 'contacts') mountContacts(active.address, render, text => { notice = text; const el = document.getElementById('notice'); if (el) el.textContent = text; });
   if (active && view === 'market') disposeMarket = mountMarket(document.getElementById('market-panel')!, selectedNetwork);
+  if (active && view === 'tokens') {
+    const host = document.getElementById('evm-panel') || document.getElementById('tokens-panel') || document.getElementById('multi-panel') || document.getElementById('tron-panel');
+    if (host) {
+      const guide = document.createElement('details'); guide.className = 'card token-guide';
+      guide.innerHTML = '<summary>How do tokens and networks work?</summary><div class="capability-diagram" role="img" aria-label="Choose the correct network, discover or import a verified contract, then track its balance"><div><strong>Choose network</strong><small>Assets live on a particular chain</small></div><span aria-hidden="true">→</span><div><strong>Find or import</strong><small>Verify issuer + contract/mint</small></div><span aria-hidden="true">→</span><div><strong>Track & receive</strong><small>Keep the right native fee token</small></div></div><p>USDT on Ethereum, Polygon and TRON uses different contracts. Native SOL belongs to Solana; an EVM token named SOL is separate. Discovery can find candidates automatically, but names and symbols do not prove authenticity. Importing does not bridge funds.</p><p><a href="/learn/tokens.html" target="_blank" rel="noopener noreferrer">Read the token and network guide ↗</a></p>';
+      host.before(guide);
+    }
+  }
   mountEntryTabs(root); enhanceCards(root);
 }
 
@@ -819,7 +843,7 @@ function bind() {
   });
   root.querySelectorAll<HTMLButtonElement>('[data-rename-account]').forEach(button => button.onclick = () => {
     const select = document.getElementById('rename-account-address') as HTMLSelectElement | null;
-    if (select) select.value = button.dataset.renameAccount!;
+    if (select) { select.value = button.dataset.renameAccount!; select.dispatchEvent(new Event('change', { bubbles: true })); }
     document.getElementById('rename-account-nickname')?.focus();
     document.getElementById('rename-account-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
@@ -1177,4 +1201,5 @@ function bind() {
 }
 try { if (preserveImportedWallet(localStorage, WALLET_LIST)) notice = 'An older wallet was preserved in Saved wallets. Use the normal wallet switch and unlock flow.'; } catch { notice = 'An older wallet could not be added to Saved wallets. Its original encrypted storage is preserved.'; }
 render();
+installSelectPickers(root);
 
