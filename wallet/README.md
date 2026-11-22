@@ -1,6 +1,6 @@
 # Forma — self-custody wallet prototype
 
-Standalone browser wallet. The existing event app is unchanged.
+Standalone browser wallet. Solana Mainnet is available as an explicit network selection; all other chains remain testnets. Cards remain synthetic. See [MAINNET.md](MAINNET.md) for setup, transfer limitations and validation gaps. The existing event app is unchanged.
 
 One primary wallet unlocks Ethereum Sepolia, Bitcoin Testnet3 and Solana Devnet accounts from the same recovery phrase and encrypted backup, and can hold several Ethereum accounts derived from that phrase or imported as standalone private keys. The Network selector keeps Overview, holdings, transfers, Activity and Market on the chosen network across navigation and reloads. Older separate BTC/SOL vaults are preserved in normal Saved wallets; use the standard unlock, encrypted-backup or recovery-phrase restore flow. See [MULTICHAIN.md](MULTICHAIN.md) for recovery, migration, supported paths and limitations. The USD portfolio estimate remains Ethereum-specific.
 

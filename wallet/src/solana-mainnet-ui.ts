@@ -1,0 +1,111 @@
+import { HDNodeWallet, Wallet, formatUnits } from 'ethers';
+import { base64 } from '@scure/base';
+import QRCode from 'qrcode';
+import { deriveMulti, unifiedRoot, clearMulti, solRecipient, solTransfer, signSol, units, type MultiKeys } from './multichain-core';
+import { splUnits, splTransaction, signSpl, type SplMint } from './sol-tokens';
+import { safeNumber } from './multichain-network';
+import { createMainnetApi, MAINNET_USDT, mainnetMints, mainnetMintsKey, mainnetJournal, mainnetJournalKey, retainMainnetSubmission, type MainnetSubmission } from './solana-mainnet';
+import { assetTable, readNativeReference } from './asset-display';
+import { enhanceCards } from './ui-panels';
+
+const escape = (value: string) => value.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]!);
+type Review = { to: string; amount: bigint; mint?: SplMint; tx: ReturnType<typeof solTransfer>; expiry: number; fee: bigint; created: number };
+export function mountSolanaMainnet(host: HTMLElement, wallet: Wallet | HDNodeWallet, session: {current():boolean; hidden():boolean; toggleHidden():void; page:string}) {
+  const abort = new AbortController(), api = createMainnetApi(abort.signal);
+  let disposed=false, busy=false, keys:MultiKeys|undefined, review:Review|undefined, balance:bigint|undefined;
+  let solPrice:number|undefined, usdtPrice:number|undefined;
+  const values=new Map<string,{mint:SplMint;amount:bigint}>();
+  const live=()=>!disposed && session.current() && host.isConnected;
+  const guard=()=>{if(!live() || !keys || keys.disposed) throw new Error('Wallet locked or account/network changed.');};
+  const $=(id:string)=>host.querySelector<HTMLElement>(`#sm-${id}`)!;
+  const field=(id:string)=>($(id) as HTMLInputElement).value;
+  const owner=()=>keys!.solAddress;
+  const mints=()=>mainnetMints(localStorage.getItem(mainnetMintsKey(owner())));
+  const journal=()=>mainnetJournal(localStorage.getItem(mainnetJournalKey(owner())));
+  const record=(row:MainnetSubmission)=>localStorage.setItem(mainnetJournalKey(owner()),JSON.stringify(retainMainnetSubmission(journal(),row)));
+  const unresolved=()=>journal().some(row=>['unknown','pending'].includes(row.status));
+  function message(text:string,error=false) {if(!live())return; const el=$('message');el.textContent=text;el.className=error?'form-error':'hint';el.setAttribute('role',error?'alert':'status');if(error){el.tabIndex=-1;el.focus();}}
+  function controls(){host.querySelectorAll<HTMLButtonElement|HTMLInputElement|HTMLSelectElement>('button,input,select').forEach(el=>el.disabled=busy);}
+  async function run(work:()=>Promise<void>){if(!live()||busy)return;busy=true;controls();try{await work();}catch(error){if(live())message(error instanceof Error && !('code' in error) && error.message.length<240?error.message:'Mainnet operation failed. Check network and transaction status before retrying.',true);}finally{if(live()){busy=false;controls();}}}
+  function holdings(){
+    if(!live()||!keys)return;
+    const list=mints();
+    $('holdings').innerHTML=assetTable([{id:'native',symbol:'SOL',name:'Solana Mainnet',amount:balance===undefined?undefined:formatUnits(balance,9),usd:balance!==undefined&&solPrice!==undefined?Number(formatUnits(balance,9))*solPrice:undefined,verified:true},...list.map(id=>{
+      const value=values.get(id),official=id===MAINNET_USDT,amount=value?formatUnits(value.amount,value.mint.decimals):undefined;
+      return {id,symbol:official?'USDT':'SPL',name:official?'Tether USD · issuer-listed mint':`${id.slice(0,8)}…${id.slice(-6)} · unverified`,amount,usd:official&&amount!==undefined&&usdtPrice!==undefined?Number(amount)*usdtPrice:undefined,verified:official,kind:'token' as const};
+    })],session.hidden(),true,'mainnet');
+    $('privacy').textContent=session.hidden()?'Show balances':'Hide balances';
+  }
+  function history(){
+    $('history').innerHTML=journal().map(row=>`<div class="history-row"><div class="history-identity"><strong>Sent ${row.mint===MAINNET_USDT?'USDT':row.mint?'SPL':'SOL'} · ${row.status}</strong><p>${escape(new Date(row.when).toLocaleString())}</p><code>${escape(row.to)}</code><a href="https://explorer.solana.com/tx/${row.id}" target="_blank" rel="noopener noreferrer">Check Mainnet transaction ↗</a></div><div class="history-value">${session.hidden()?'••••••':escape(formatUnits(row.amount,row.decimals))}</div></div>`).join('')||'<p>No locally submitted Mainnet transfers.</p>';
+  }
+  async function refresh(){
+    guard();await api.identity();guard();balance=await api.balance(owner());guard();holdings();
+    const list=mints();let next=0;
+    await Promise.all(Array.from({length:Math.min(3,list.length)},async()=>{while(next<list.length&&live()){const id=list[next++];values.delete(id);try{const mint=await api.mint(id),account=await api.account(owner(),mint);guard();values.set(id,{mint,amount:account.amount});}catch{guard();}holdings();}}));
+    for(const row of journal().filter(row=>['unknown','pending'].includes(row.status))){
+      const result=await api.rpc('getSignatureStatuses',[[row.id],{searchTransactionHistory:true}]);guard();const status=result?.value?.[0];
+      if(status?.err!=null)record({...row,status:'failed'});else if(['confirmed','finalized'].includes(status?.confirmationStatus))record({...row,status:'confirmed'});
+    }
+    history();message('Mainnet identity and balances checked. Pending/unknown submissions block new sends until resolved.');
+  }
+  async function prepare(){
+    guard();review=undefined;$('review').replaceChildren();if(unresolved())throw new Error('Resolve the pending or unknown Mainnet transaction before sending again.');
+    const to=solRecipient(field('to').trim()).toBase58();if(to===owner())throw new Error('Choose a different recipient.');
+    const id=field('asset');if(id!=='native'&&!mints().includes(id))throw new Error('Choose a tracked mint.');
+    await api.identity();guard();const mint=id==='native'?undefined:await api.mint(id);guard();
+    const amount=mint?splUnits(field('amount').trim(),mint.decimals):units(field('amount').trim(),9);
+    if(mint){const source=await api.account(owner(),mint),destination=await api.account(to,mint);guard();if(!source.exists||source.amount<amount)throw new Error('Insufficient token balance.');if(!destination.exists)throw new Error('Recipient token account does not exist. This version requires an existing associated token account.');}
+    const block=(await api.rpc('getLatestBlockhash',[{commitment:'confirmed'}]))?.value;guard();
+    const expiry=safeNumber(block?.lastValidBlockHeight);
+    const tx=mint?await splTransaction(owner(),to,mint,amount,block.blockhash):solTransfer(keys!,to,amount,block.blockhash);guard();
+    const fee=BigInt(safeNumber((await api.rpc('getFeeForMessage',[base64.encode(tx.serializeMessage()),{commitment:'confirmed'}]))?.value));guard();
+    if(fee>1000000n)throw new Error('Fee exceeds the 0.001 SOL safety limit.');
+    if(await api.balance(owner())<(mint?fee:amount+fee))throw new Error('Insufficient SOL for amount and network fee.');guard();
+    review={to,amount,mint,tx,expiry,fee,created:Date.now()};
+    $('review').innerHTML=`<div class="review"><strong>REAL FUNDS · Solana Mainnet</strong><p>Send ${escape(formatUnits(amount,mint?.decimals??9))} ${mint?.mint===MAINNET_USDT?'USDT':mint?'SPL':'SOL'}</p><p>Full recipient: <code>${escape(to)}</code></p>${mint?`<p>Mint: <code>${mint.mint}</code></p>`:''}<p>Network fee: ${formatUnits(fee,9)} SOL. Review expires in 90 seconds.</p><label class="check"><input id="sm-ack" type="checkbox"> I checked the full recipient, mint, amount and Mainnet. This transfer spends real funds.</label><button id="sm-confirm" class="primary" type="button">Confirm Mainnet transfer</button><button id="sm-cancel" class="quiet" type="button">Cancel</button></div>`;
+    $('confirm').onclick=()=>void run(send);$('cancel').onclick=()=>{review=undefined;$('review').replaceChildren();};
+  }
+  async function send(){
+    guard();if(!review||!($('ack') as HTMLInputElement).checked)throw new Error('Acknowledge the Mainnet transfer review.');
+    const r=review,k=keys!;review=undefined;$('review').replaceChildren();
+    if(!navigator.locks)throw new Error('Mainnet sending requires browser Web Locks support.');
+    await navigator.locks.request(`forma.sol.mainnet.send:${owner()}`,{ifAvailable:true},async lock=>{
+      if(!lock)throw new Error('Another tab is sending from this Mainnet account.');
+      const fresh=()=>{guard();if(Date.now()-r.created>90000)throw new Error('Mainnet review expired. Review again.');};fresh();
+      if(unresolved())throw new Error('A pending or unknown transaction blocks this transfer.');
+      await api.identity();fresh();if(safeNumber(await api.rpc('getBlockHeight',[{commitment:'confirmed'}]))>r.expiry)throw new Error('Blockhash expired. Review again.');fresh();
+      if(r.mint){const mint=await api.mint(r.mint.mint);fresh();if(JSON.stringify(mint)!==JSON.stringify(r.mint))throw new Error('Mint changed. Review again.');const source=await api.account(owner(),mint),destination=await api.account(r.to,mint);fresh();if(!source.exists||source.amount<r.amount||!destination.exists)throw new Error('Token balance or accounts changed.');}
+      const fee=BigInt(safeNumber((await api.rpc('getFeeForMessage',[base64.encode(r.tx.serializeMessage()),{commitment:'confirmed'}]))?.value));fresh();
+      if(fee!==r.fee||await api.balance(owner())<(r.mint?fee:r.amount+fee))throw new Error('Fee or SOL balance changed. Review again.');fresh();
+      const signed=r.mint?await signSpl(r.tx,k,r.to,r.mint,r.amount):await signSol(r.tx,k,r.to,r.amount);fresh();
+      const simulation=await api.rpc('simulateTransaction',[base64.encode(signed.raw),{encoding:'base64',sigVerify:true,commitment:'confirmed'}]);fresh();
+      if(simulation?.value?.err!==null)throw new Error('Mainnet simulation failed. Nothing was broadcast.');
+      await api.identity();fresh();if(safeNumber(await api.rpc('getBlockHeight',[{commitment:'confirmed'}]))>r.expiry)throw new Error('Blockhash expired before broadcast.');fresh();
+      const row:MainnetSubmission={id:signed.id,to:r.to,amount:r.amount.toString(),decimals:r.mint?.decimals??9,mint:r.mint?.mint,expiry:r.expiry,when:Date.now(),status:'unknown'};
+      record(row);fresh(); // Durable record must succeed before the single broadcast attempt.
+      const result=await api.rpc('sendTransaction',[base64.encode(signed.raw),{encoding:'base64',skipPreflight:false,preflightCommitment:'confirmed',maxRetries:0}]);fresh();
+      if(result!==signed.id)throw new Error('Broadcast response differs. Check the recorded signature before retrying.');
+      record({...row,status:'pending'});history();message('Mainnet transfer submitted. Wait for confirmation; never retry an unknown submission automatically.');
+    });
+  }
+  function paint(){
+    host.innerHTML=`<p id="sm-message" class="hint" role="status">Solana Mainnet · real funds</p><section class="balance-card"><div class="eyebrow">SOLANA MAINNET · REAL FUNDS</div><h2>Your Solana wallet</h2><code class="multi-address">${owner()}</code><div class="balance-actions"><button id="sm-refresh" type="button" class="quiet">Refresh balances & status</button><button id="sm-privacy" type="button" class="quiet">Hide balances</button></div><p>Same derived Solana address as Devnet, separate balances and transaction history. Public RPC may rate-limit.</p></section>
+      <section id="sm-holdings" class="card holdings-shell"></section>
+      <div class="native-transfer-grid wallet-grid lower" id="sm-transfer"><section class="card"><h2>Send crypto</h2><form id="sm-send"><label for="sm-asset">Asset</label><select id="sm-asset"><option value="native">SOL · network fees</option>${mints().map(id=>`<option value="${id}">${id===MAINNET_USDT?'USDT · official mint':`SPL · ${id.slice(0,8)}…${id.slice(-6)}`}</option>`).join('')}</select><label for="sm-to">Recipient Solana wallet</label><input id="sm-to" required maxlength="44" autocomplete="off"><label for="sm-amount">Amount</label><input id="sm-amount" required inputmode="decimal" maxlength="40" autocomplete="off"><p class="hint">Real funds. SOL pays fees. Tokens require the recipient’s existing associated token account; automatic account creation and Token-2022 are unavailable.</p><button class="primary">Review Mainnet transfer</button></form><div id="sm-review"></div></section><section class="card"><h2>Receive crypto</h2><p>Solana Mainnet only. Share this wallet address, never the token mint.</p><canvas id="sm-qr" aria-label="Solana Mainnet receiving address"></canvas><code class="multi-address">${owner()}</code><button id="sm-copy" type="button" class="quiet">Copy address</button><a href="https://explorer.solana.com/address/${owner()}" target="_blank" rel="noopener noreferrer">View Mainnet account ↗</a></section></div>
+      <section id="sm-tokens" class="card holdings-shell"><h2>Mainnet tokens</h2><p>Official USDT is included automatically. Classic SPL only · up to 25 tracked mints. Discovery is partial; balances cover associated accounts only.</p><p><code>${MAINNET_USDT}</code> · <a href="https://tether.to/en/supported-protocols/" target="_blank" rel="noopener noreferrer">Tether issuer reference ↗</a></p><form id="sm-import"><label for="sm-mint">Token mint</label><input id="sm-mint" required maxlength="44" autocomplete="off"><button class="quiet">Validate & add mint</button></form><button id="sm-discover" type="button" class="quiet">Find held tokens</button></section>
+      <section id="sm-activity" class="card holdings-shell"><h2>Mainnet transaction history</h2><p>Transfers submitted from this browser. Full incoming/outgoing history is on the explorer. Unknown does not mean failed.</p><div id="sm-history"></div></section>`;
+    $('holdings').hidden=!['overview','portfolio','tokens'].includes(session.page);$('transfer').hidden=session.page!=='transfer';$('tokens').hidden=session.page!=='tokens';$('activity').hidden=!['overview','activity'].includes(session.page);
+    $('refresh').onclick=()=>void run(refresh);$('privacy').onclick=()=>{session.toggleHidden();holdings();history();};
+    $('send').onsubmit=event=>{event.preventDefault();void run(prepare);};$('send').oninput=()=>{review=undefined;$('review').replaceChildren();};$('send').onchange=()=>{review=undefined;$('review').replaceChildren();};
+    $('copy').onclick=()=>void run(async()=>{await navigator.clipboard.writeText(owner());message('Mainnet wallet address copied.');});
+    $('import').onsubmit=event=>{event.preventDefault();void run(async()=>{await api.identity();guard();const mint=await api.mint(field('mint').trim());guard();const list=mints();if(list.includes(mint.mint))throw new Error('Mint already tracked.');if(list.length>=25)throw new Error('25-mint limit reached.');localStorage.setItem(mainnetMintsKey(owner()),JSON.stringify([...list,mint.mint]));paint();await refresh();});};
+    $('discover').onclick=()=>void run(async()=>{const found=await api.discover(owner());guard();const list=[...new Set([...mints(),...found])].slice(0,25);localStorage.setItem(mainnetMintsKey(owner()),JSON.stringify(list));paint();await refresh();});
+    enhanceCards(host);holdings();history();controls();void QRCode.toCanvas($('qr'),owner(),{width:180,margin:2}).catch(()=>{});
+  }
+  const changed=(event:StorageEvent)=>{if(keys&&[mainnetMintsKey(owner()),mainnetJournalKey(owner()),null].includes(event.key)){review=undefined;if(live()){ $('review').replaceChildren();message('Another tab changed this Mainnet account. Refresh before sending.');}}};
+  window.addEventListener('storage',changed);
+  host.textContent='Opening Solana Mainnet…';
+  void Promise.resolve().then(()=>deriveMulti(unifiedRoot(wallet))).then(derived=>{if(!live()){clearMulti(derived);return;}keys=derived;paint();void run(refresh);for(const symbol of ['SOL','USDT'])void readNativeReference(symbol,abort.signal).then(price=>{if(live()){if(symbol==='SOL')solPrice=price;else usdtPrice=price;holdings();}}).catch(()=>{});}).catch(()=>{clearMulti(keys);keys=undefined;if(live())host.textContent='Could not open Solana Mainnet. A phrase-backed wallet without a BIP-39 passphrase and valid browser storage are required. Existing backups are preserved.';});
+  return()=>{disposed=true;review=undefined;abort.abort();clearMulti(keys);keys=undefined;window.removeEventListener('storage',changed);host.replaceChildren();};
+}

@@ -64,6 +64,7 @@ let disposeEvm: (() => void) | undefined;
 let disposeNetworks: (() => void) | undefined;
 let disposeCards: (() => void) | undefined;
 let disposeTron: (() => void) | undefined;
+let disposeSolanaMainnet: (() => void) | undefined;
 let disposeWatch: (() => void) | undefined;
 let disposeTokenSummary: (() => void) | undefined;
 let historyNotice = 'Refresh to load on-chain activity.';
@@ -107,7 +108,7 @@ function updateAmountVisibility() {
   if (portfolioToggle) { portfolioToggle.textContent = amountsHidden ? 'Show holdings' : 'Hide holdings'; portfolioToggle.setAttribute('aria-pressed', String(amountsHidden)); }
 }
 const pages: Record<string, { title: string; subtitle: string; icon: string }> = {
-  networks: { title: 'Choose your network.', subtitle: 'Search supported testnets, save favorites and manage your network list.', icon: '⊞' },
+  networks: { title: 'Choose your network.', subtitle: 'Search supported networks, save favorites and manage your network list.', icon: '⊞' },
   cards: { title: 'Explore virtual cards.', subtitle: 'Demo controls and synthetic purchases. No real payments or issued cards.', icon: '▱' },
   tokens: { title: 'More assets. Same wallet.', subtitle: 'Track and transfer ERC-20 tokens on Ethereum Sepolia.', icon: 'T' },
   portfolio: { title: 'Your portfolio, at a glance.', subtitle: 'Holdings and activity for your current wallet.', icon: '◈' },
@@ -497,6 +498,7 @@ function render() {
   disposeNetworks?.(); disposeNetworks = undefined;
   disposeCards?.(); disposeCards = undefined;
   disposeTron?.(); disposeTron = undefined;
+  disposeSolanaMainnet?.(); disposeSolanaMainnet = undefined;
   disposeWatch?.(); disposeWatch = undefined;
   disposeTokenSummary?.(); disposeTokenSummary = undefined;
   root.dataset.page=view; root.dataset.network=selectedNetwork;
@@ -508,6 +510,7 @@ function render() {
   const native = !!active && usesNativeWorkspace(selectedNetwork, view);
   const additionalEvm = !!active && isAdditionalEvm(selectedNetwork) && ['overview', 'portfolio', 'transfer', 'tokens', 'activity'].includes(view);
   const tron = !!active && selectedNetwork === 'tron' && ['overview', 'portfolio', 'transfer', 'tokens', 'activity'].includes(view);
+  const solanaMainnet = !!active && selectedNetwork === 'sol-mainnet' && ['overview','portfolio','transfer','tokens','activity'].includes(view);
   const available = supportsPage(selectedNetwork, view);
   const asset = networkAsset(selectedNetwork);
   const title = active && ['overview','portfolio','transfer','activity','market','tokens','contacts','watch'].includes(view) ? networkHeading(selectedNetwork, view) : page.title;
@@ -516,6 +519,7 @@ function render() {
     : active && view === 'cards' ? '<section id="demo-cards-panel"></section>'
     : !available ? `<section class="card"><h2>${asset.name}: feature unavailable</h2><p>This feature is not enabled on the selected network. Choose an available feature from the navigation or switch networks.</p></section>`
     : active && view === 'market' ? marketMarkup(selectedNetwork)
+    : solanaMainnet ? `${networkAccountsMarkup()}<section id="solana-mainnet-panel"><p role="status">Opening Solana Mainnet…</p></section>`
     : tron ? `${networkAccountsMarkup()}<section id="tron-panel"><p role="status">Opening TRON Nile…</p></section>`
     : additionalEvm ? `${networkAccountsMarkup()}<section id="evm-panel"><p role="status">Opening selected network…</p></section>`
     : native ? `${view === 'overview' ? networkAccountsMarkup() : ''}<section id="multi-panel" class="multichain-workspace"><p role="status">Opening selected network…</p></section>`
@@ -525,9 +529,9 @@ function render() {
     : onboarding(hasVault);
 
   root.innerHTML = `<button id="sidebar-backdrop" aria-label="Close navigation" tabindex="-1"></button><aside id="wallet-sidebar"><a class="brand" href="/">◈ <span>forma</span></a><button id="sidebar-toggle" class="sidebar-toggle" aria-controls="wallet-sidebar" title="Toggle sidebar"></button><div class="workspace">PERSONAL WALLET</div><nav aria-label="Wallet navigation">${[['overview','Overview'],['networks','Networks'],['portfolio','Portfolio'],['tokens','Tokens'],['transfer','Send & receive'],['market','Market'],['activity','Activity'],['ledger','Ledger'],['watch','Watch-only'],['contacts','Contacts'],['cards','Cards · demo'],['settings','Recovery & import']].map(([id,label]) => `<button data-view="${id}" title="${supportsPage(selectedNetwork, id) ? label : label + ' (not enabled on this network)'}" aria-label="${label}" ${(!active && id !== 'overview') || !supportsPage(selectedNetwork, id) ? 'disabled' : ''} class="${view === id ? 'selected' : ''}" aria-current="${view === id ? 'page' : 'false'}"><span class="nav-icon" aria-hidden="true">${pages[id].icon}</span><span class="nav-label">${label}</span></button>`).join('')}</nav><div class="aside-bottom"><span class="dot"></span> Your keys. Your control.<small>Self-custody, by design.</small></div></aside>
-    <main><header><a href="/" class="entry-brand" aria-label="Forma home"><span aria-hidden="true">&#9672;</span> forma<span class="brand-caption">YOUR PERSONAL WALLET</span></a><button id="mobile-menu-toggle" class="quiet" aria-label="Open navigation" aria-controls="wallet-sidebar">&#9776;</button><div class="crumb">My wallet <span>/</span> ${view === 'multi' ? 'Bitcoin & Solana' : view === 'cards' ? 'Cards · demo' : view === 'networks' ? 'Networks' : view === 'overview' ? 'Overview' : view === 'transfer' ? 'Send & receive' : view === 'activity' ? 'Activity' : view === 'market' ? 'Market' : view === 'portfolio' ? 'Portfolio' : view === 'tokens' ? 'Tokens' : view === 'contacts' ? 'Contacts' : view === 'watch' ? 'Watch-only' : view === 'ledger' ? 'Ledger' : 'Recovery & import'}</div><div class="header-tools"><label class="theme-control" for="theme-select"><span>Appearance</span><select id="theme-select" aria-label="Appearance">${['system','light','dark'].map(t => `<option value="${t}" ${theme === t ? 'selected' : ''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}</select></label>${active ? `<label class="network-control" for="account-select"><span>Account</span><select id="account-select" aria-label="Wallet account">${accountOptions()}</select></label>` : ''}${active ? `<label class="network-control" for="network-select"><span>Network</span><select id="network-select" aria-label="Wallet network">${networkOptionsMarkup()}</select></label>` : ''}<div class="network"><span class="dot"></span> ${networkAsset(selectedNetwork).network} <b>TESTNET</b></div></div></header>
+    <main><header><a href="/" class="entry-brand" aria-label="Forma home"><span aria-hidden="true">&#9672;</span> forma<span class="brand-caption">YOUR PERSONAL WALLET</span></a><button id="mobile-menu-toggle" class="quiet" aria-label="Open navigation" aria-controls="wallet-sidebar">&#9776;</button><div class="crumb">My wallet <span>/</span> ${view === 'multi' ? 'Bitcoin & Solana' : view === 'cards' ? 'Cards · demo' : view === 'networks' ? 'Networks' : view === 'overview' ? 'Overview' : view === 'transfer' ? 'Send & receive' : view === 'activity' ? 'Activity' : view === 'market' ? 'Market' : view === 'portfolio' ? 'Portfolio' : view === 'tokens' ? 'Tokens' : view === 'contacts' ? 'Contacts' : view === 'watch' ? 'Watch-only' : view === 'ledger' ? 'Ledger' : 'Recovery & import'}</div><div class="header-tools"><label class="theme-control" for="theme-select"><span>Appearance</span><select id="theme-select" aria-label="Appearance">${['system','light','dark'].map(t => `<option value="${t}" ${theme === t ? 'selected' : ''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}</select></label>${active ? `<label class="network-control" for="account-select"><span>Account</span><select id="account-select" aria-label="Wallet account">${accountOptions()}</select></label>` : ''}${active ? `<label class="network-control" for="network-select"><span>Network</span><select id="network-select" aria-label="Wallet network">${networkOptionsMarkup()}</select></label>` : ''}<div class="network"><span class="dot"></span> ${networkAsset(selectedNetwork).network} <b>${selectedNetwork === 'sol-mainnet' ? 'MAINNET' : 'TESTNET'}</b></div></div></header>
     <section class="content"><div class="title-row"><div><div class="eyebrow">A LITTLE MORE OWNERSHIP</div><h1>${title}</h1><p>${subtitle}</p></div>${active ? '<button id="lock" class="quiet">⌑ Lock wallet</button>' : '<span class="pill">◈ Self-custody</span>'}</div>
-    <div class="test-banner">◇ <span><strong>You’re on a test network.</strong> Use test tokens only. This prototype has not been audited.</span></div>
+    <div class="test-banner">◇ <span>${selectedNetwork === 'sol-mainnet' ? '<strong>Solana Mainnet · real funds.</strong> Check addresses and fees carefully. This wallet has not been independently audited. Cards remain demo-only.' : '<strong>You’re on a test network.</strong> Use test tokens only. This prototype has not been audited.'}</span></div>
     <div id="notice" role="status" aria-live="polite">${escape(notice)}</div>
     ${content}
     <footer class="wallet-footer"><div class="footer-brand"><strong>FORMA</strong><span>Your keys. Your control.</span></div><div class="footer-meta"><span id="footer-network"><i class="dot"></i>${networkAsset(selectedNetwork).network}</span><span>Self-custody</span><span class="footer-version">Prototype v0.1</span></div></footer></section></main>`;
@@ -570,6 +574,17 @@ function render() {
         toggleHidden: () => { amountsHidden = !amountsHidden; localStorage.setItem('forma.amounts.hidden', String(amountsHidden)); },
       });
     }).catch(() => { if (host.isConnected) host.textContent = 'TRON Nile could not load. Try refreshing.'; });
+  }
+  if (solanaMainnet && active) {
+    const wallet = active, version = generation, host = document.getElementById('solana-mainnet-panel')!;
+    void import('./solana-mainnet-ui').then(module => {
+      if (!host.isConnected || generation !== version || active !== wallet || selectedNetwork !== 'sol-mainnet') return;
+      disposeSolanaMainnet = module.mountSolanaMainnet(host, wallet, {
+        current: () => active === wallet && generation === version && selectedNetwork === 'sol-mainnet',
+        hidden: () => amountsHidden, page: view,
+        toggleHidden: () => { amountsHidden = !amountsHidden; localStorage.setItem('forma.amounts.hidden',String(amountsHidden)); },
+      });
+    }).catch(() => { if (host.isConnected && generation === version) host.textContent = 'Solana Mainnet workspace could not load. Reload to retry.'; });
   }
   if (additionalEvm && active && isAdditionalEvm(selectedNetwork)) {
     const network = selectedNetwork, wallet = active, version = generation;
