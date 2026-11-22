@@ -1,6 +1,6 @@
 # Forma — self-custody wallet prototype
 
-Standalone browser wallet. Solana and ten EVM mainnets are available as explicit network selections; Bitcoin remains Testnet3 and TRON remains read-only Nile. Cards remain synthetic. See [MAINNET.md](MAINNET.md) for setup, transfer limitations and validation gaps. The existing event app is unchanged.
+Standalone browser wallet with 34 explicit network selections: 19 Mainnets and 15 test networks. Mainnet support covers 16 EVM presets, native Bitcoin, Solana/classic SPL and read-only TRON/TRC-20. Cards remain synthetic. See [MAINNET.md](MAINNET.md) for transfer limitations, token support and validation gaps. The existing event app is unchanged.
 
 One primary wallet unlocks Ethereum Sepolia, Bitcoin Testnet3 and Solana Devnet accounts from the same recovery phrase and encrypted backup, and can hold several Ethereum accounts derived from that phrase or imported as standalone private keys. The Network selector keeps Overview, holdings, transfers, Activity and Market on the chosen network across navigation and reloads. Older separate BTC/SOL vaults are preserved in normal Saved wallets; use the standard unlock, encrypted-backup or recovery-phrase restore flow. See [MULTICHAIN.md](MULTICHAIN.md) for recovery, migration, supported paths and limitations. The USD portfolio estimate remains Ethereum-specific.
 
@@ -74,8 +74,8 @@ Appearance is available in the header while locked or unlocked: System follows d
 - Only chain ID 11155111 is allowed. Review validates address, precision, balance and maximum gas. Blockchain node responses are still a trust dependency.
 - Optional `VITE_SEPOLIA_RPC_URL` is public configuration; never include private credentials. The default public RPC may rate limit or be unavailable. The RPC operator can observe addresses and requests.
 - History queries send your public address to Sepolia Blockscout. That indexer can observe requests and may lag or be unavailable; the UI reports partial failures and retains cached data. Cached transactions and saved wallet addresses are public-chain data stored unencrypted locally. Recovery phrases are never stored as plaintext or sent to either service.
-- No backend, analytics, external fonts, key escrow, swaps, M-Pesa, cards or mainnet support.
-- This is an unaudited development prototype. Never import a wallet that holds real assets. A testnet wallet uses keys that can also control mainnet addresses, even though this UI blocks mainnet.
+- No backend, analytics, external fonts, key escrow, swaps, M-Pesa or real card issuing. Cards are local synthetic demos.
+- This is an unaudited development prototype. Explicit mainnets are enabled, but mocked tests do not establish real-fund readiness. Use fresh disposable wallets for validation.
 - Browser storage, dependencies, malicious extensions and XSS are security boundaries. Public deployment needs threat modelling, dependency review, CSP and security headers, reproducible builds, recovery UX review and independent security assessment.
 - There is no automatic transaction retry. If submission fails after broadcast, inspect the explorer before trying again to avoid duplicate transfers.
 

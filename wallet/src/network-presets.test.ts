@@ -9,7 +9,7 @@ describe('reviewed EVM network presets', () => {
   it('uses unique chain IDs, native currencies and frozen configuration', () => {
     const configs = Object.values(evmNetworks);
     expect(configs.filter(config=>config.testnet)).toHaveLength(11);
-    expect(configs.filter(config=>!config.testnet)).toHaveLength(10);
+    expect(configs.filter(config=>!config.testnet)).toHaveLength(16);
     expect(new Set(configs.map(config => config.chainId)).size).toBe(configs.length);
     expect(Object.isFrozen(evmNetworks)).toBe(true);
     for (const config of configs) {

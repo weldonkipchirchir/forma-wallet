@@ -6,7 +6,7 @@ const icons = new Set(['ETH', 'BTC', 'SOL', 'TRX', 'POL', 'AVAX', 'BNB', 'USDT',
 /** Never infer an issuer's identity from an imported contract's symbol. */
 export function assetLogo(symbol: string, verified = false) {
   const id = verified && icons.has(symbol) ? symbol.toLowerCase() : 'token';
-  return `<img class="asset-logo" src="/assets/tokens/${id}.svg" width="36" height="36" alt="${id === 'token' ? 'Unverified token' : escape(symbol)} logo" loading="lazy">`;
+  return `<img class="asset-logo" src="/assets/tokens/${id}.svg" width="36" height="36" alt="${id === 'token' ? verified ? 'Asset placeholder' : 'Unverified token' : escape(symbol)} logo" loading="lazy">`;
 }
 export type AssetDisplayRow = { id: string; symbol: string; name: string; amount?: string; usd?: number; verified?: boolean; kind?: 'token' };
 export function referenceDollars(value: number) {

@@ -5,6 +5,12 @@ const mainnet = <const T extends PresetInput>(preset: T, transactionType: 0 | 2 
 // Operator-reviewed HTTPS endpoints, not a remote/untrusted network-list import.
 // Public RPCs can be rate limited. Every connection must still verify eth_chainId.
 export const evmNetworks = Object.freeze({
+  'worldchain-mainnet': mainnet({name:'World Chain',network:'World Chain Mainnet',chainId:480,symbol:'ETH',rpc:'https://worldchain-mainnet.g.alchemy.com/public',explorer:'https://worldchain-mainnet.explorer.alchemy.com',docs:'https://github.com/ethereum-optimism/superchain-registry/blob/main/superchain/configs/mainnet/worldchain.toml'}),
+  'soneium-mainnet': mainnet({name:'Soneium',network:'Soneium Mainnet',chainId:1868,symbol:'ETH',rpc:'https://rpc.soneium.org',explorer:'https://soneium.blockscout.com',docs:'https://docs.soneium.org/docs/builders/overview'}),
+  'gnosis-mainnet': mainnet({name:'Gnosis',network:'Gnosis Mainnet',chainId:100,symbol:'XDAI',rpc:'https://rpc.gnosischain.com',explorer:'https://gnosisscan.io',docs:'https://docs.gnosischain.com/about/networks/mainnet/'}),
+  'sonic-mainnet': mainnet({name:'Sonic',network:'Sonic Mainnet',chainId:146,symbol:'S',rpc:'https://rpc.soniclabs.com',explorer:'https://sonicscan.org',docs:'https://docs.soniclabs.com/sonic/build-on-sonic/getting-started'}),
+  'celo-mainnet': mainnet({name:'Celo',network:'Celo Mainnet',chainId:42220,symbol:'CELO',rpc:'https://forno.celo.org',explorer:'https://celoscan.io',docs:'https://docs.celo.org/learn/network/overview'}),
+  'scroll-mainnet': mainnet({name:'Scroll',network:'Scroll Mainnet',chainId:534352,symbol:'ETH',rpc:'https://rpc.scroll.io',explorer:'https://scrollscan.com',docs:'https://docs.scroll.io/en/developers/'}),
   'ethereum-mainnet': mainnet({ name: 'Ethereum', network: 'Ethereum Mainnet', chainId: 1, symbol: 'ETH', rpc: 'https://ethereum-rpc.publicnode.com', explorer: 'https://etherscan.io', docs: 'https://ethereum.publicnode.com/' }),
   'bnb-mainnet': mainnet({ name: 'BNB Smart Chain', network: 'BNB Smart Chain Mainnet', chainId: 56, symbol: 'BNB', rpc: 'https://bsc-dataseed.bnbchain.org', explorer: 'https://bscscan.com', docs: 'https://docs.bnbchain.org/bnb-smart-chain/developers/json_rpc/json-rpc-endpoint/' }, 0),
   'polygon-mainnet': mainnet({ name: 'Polygon', network: 'Polygon Mainnet', chainId: 137, symbol: 'POL', rpc: 'https://polygon.drpc.org', explorer: 'https://polygonscan.com', docs: 'https://docs.polygon.technology/pos/reference/rpc-endpoints/' }),

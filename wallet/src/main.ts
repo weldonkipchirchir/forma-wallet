@@ -66,6 +66,7 @@ let disposeNetworks: (() => void) | undefined;
 let disposeCards: (() => void) | undefined;
 let disposeTron: (() => void) | undefined;
 let disposeSolanaMainnet: (() => void) | undefined;
+let disposeBitcoinMainnet: (() => void) | undefined;
 let disposeWatch: (() => void) | undefined;
 let disposeTokenSummary: (() => void) | undefined;
 let historyNotice = 'Refresh to load on-chain activity.';
@@ -500,6 +501,7 @@ function render() {
   disposeCards?.(); disposeCards = undefined;
   disposeTron?.(); disposeTron = undefined;
   disposeSolanaMainnet?.(); disposeSolanaMainnet = undefined;
+  disposeBitcoinMainnet?.(); disposeBitcoinMainnet = undefined;
   disposeWatch?.(); disposeWatch = undefined;
   disposeTokenSummary?.(); disposeTokenSummary = undefined;
   root.dataset.page=view; root.dataset.network=selectedNetwork;
@@ -510,7 +512,8 @@ function render() {
   const page = pages[view] || pages.overview;
   const native = !!active && usesNativeWorkspace(selectedNetwork, view);
   const additionalEvm = !!active && isAdditionalEvm(selectedNetwork) && ['overview', 'portfolio', 'transfer', 'tokens', 'activity'].includes(view);
-  const tron = !!active && selectedNetwork === 'tron' && ['overview', 'portfolio', 'transfer', 'tokens', 'activity'].includes(view);
+  const tron = !!active && (selectedNetwork === 'tron' || selectedNetwork === 'tron-mainnet') && ['overview', 'portfolio', 'transfer', 'tokens', 'activity'].includes(view);
+  const bitcoinMainnet = !!active && selectedNetwork === 'btc-mainnet' && ['overview','portfolio','transfer','activity'].includes(view);
   const solanaMainnet = !!active && selectedNetwork === 'sol-mainnet' && ['overview','portfolio','transfer','tokens','activity'].includes(view);
   const available = supportsPage(selectedNetwork, view);
   const asset = networkAsset(selectedNetwork);
@@ -521,7 +524,8 @@ function render() {
     : !available ? `<section class="card"><h2>${asset.name}: feature unavailable</h2><p>This feature is not enabled on the selected network. Choose an available feature from the navigation or switch networks.</p></section>`
     : active && view === 'market' ? marketMarkup(selectedNetwork)
     : solanaMainnet ? `${networkAccountsMarkup()}<section id="solana-mainnet-panel"><p role="status">Opening Solana Mainnet…</p></section>`
-    : tron ? `${networkAccountsMarkup()}<section id="tron-panel"><p role="status">Opening TRON Nile…</p></section>`
+    : bitcoinMainnet ? `${networkAccountsMarkup()}<section id="bitcoin-mainnet-panel"><p role="status">Opening Bitcoin Mainnet…</p></section>`
+    : tron ? `${networkAccountsMarkup()}<section id="tron-panel"><p role="status">Opening selected TRON network…</p></section>`
     : additionalEvm ? `${networkAccountsMarkup()}<section id="evm-panel"><p role="status">Opening selected network…</p></section>`
     : native ? `${view === 'overview' ? networkAccountsMarkup() : ''}<section id="multi-panel" class="multichain-workspace"><p role="status">Opening selected network…</p></section>`
     : selectedNetwork !== 'eth' && ['watch','contacts'].includes(view) ? `<section id="${view === 'watch' ? 'watch-panel' : 'contacts-panel'}" class="card">Loading network accounts…</section>`
@@ -566,15 +570,27 @@ function render() {
   if (selectedNetwork === 'eth' && active && ['overview', 'portfolio'].includes(view)) disposeTokenSummary = mountTokenSummary(document.getElementById(view === 'overview' ? 'overview-assets' : 'token-assets-summary')!, provider, active.address, () => amountsHidden);
   document.getElementById('open-ledger')?.addEventListener('click', () => { selectedNetwork = 'eth'; notice = 'Hardware wallet mode. Your local wallet remains locked.'; navigate('ledger'); });
   if (tron && active) {
-    const wallet = active, version = generation, host = document.getElementById('tron-panel')!;
+    const wallet = active, version = generation, network=selectedNetwork, host = document.getElementById('tron-panel')!;
     void import('./tron-workspace').then(module => {
-      if (!host.isConnected || generation !== version || active !== wallet || selectedNetwork !== 'tron') return;
+      if (!host.isConnected || generation !== version || active !== wallet || selectedNetwork !== network) return;
       disposeTron = module.mountTronWorkspace(host, wallet, {
-        current: () => active === wallet && generation === version && selectedNetwork === 'tron',
+        current: () => active === wallet && generation === version && selectedNetwork === network,
+        mainnet: network === 'tron-mainnet',
         hidden: () => amountsHidden, page: view,
         toggleHidden: () => { amountsHidden = !amountsHidden; localStorage.setItem('forma.amounts.hidden', String(amountsHidden)); },
       });
-    }).catch(() => { if (host.isConnected) host.textContent = 'TRON Nile could not load. Try refreshing.'; });
+    }).catch(() => { if (host.isConnected && generation === version) host.textContent = 'TRON workspace could not load. Try refreshing.'; });
+  }
+  if (bitcoinMainnet && active) {
+    const wallet=active,version=generation,host=document.getElementById('bitcoin-mainnet-panel')!;
+    void import('./bitcoin-mainnet-ui').then(module=>{
+      if(!host.isConnected||generation!==version||active!==wallet||selectedNetwork!=='btc-mainnet')return;
+      disposeBitcoinMainnet=module.mountBitcoinMainnet(host,wallet,{
+        current:()=>active===wallet&&generation===version&&selectedNetwork==='btc-mainnet',
+        hidden:()=>amountsHidden,page:view,
+        toggleHidden:()=>{amountsHidden=!amountsHidden;localStorage.setItem('forma.amounts.hidden',String(amountsHidden));},
+      });
+    }).catch(()=>{if(host.isConnected&&generation===version)host.textContent='Bitcoin Mainnet workspace could not load. Reload to retry.';});
   }
   if (solanaMainnet && active) {
     const wallet = active, version = generation, host = document.getElementById('solana-mainnet-panel')!;
