@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createMainnetApi, SOL_MAINNET_GENESIS, SOL_MAINNET_RPC, MAINNET_USDT, mainnetMints, mainnetMintsKey, mainnetJournal, mainnetJournalKey, retainMainnetSubmission, type MainnetSubmission } from './solana-mainnet';
+import { createMainnetApi, SOL_MAINNET_CONNECTIONS, SOL_MAINNET_GENESIS, SOL_MAINNET_RPC, MAINNET_USDT, mainnetMints, mainnetMintsKey, mainnetJournal, mainnetJournalKey, retainMainnetSubmission, type MainnetSubmission } from './solana-mainnet';
 import { splKey } from './sol-tokens';
 import { assetTable } from './asset-display';
 import { supportsPage, savedNetwork } from './network-context';
@@ -11,6 +11,19 @@ const row:MainnetSubmission={id:'2'.repeat(88),to:MAINNET_USDT,amount:'1000000',
 afterEach(()=>vi.unstubAllGlobals());
 function mock(result:(method:string,params:any[])=>unknown){const fetch=vi.fn(async(_url,init)=>{const data=JSON.parse(init.body);return new Response(JSON.stringify({jsonrpc:'2.0',id:data.id,result:result(data.method,data.params)}));});vi.stubGlobal('fetch',fetch);return fetch;}
 describe('isolated Solana Mainnet',()=>{
+  it('pins manual provider selection and never retries or silently fails over a broadcast',async()=>{
+    const fetch=mock(()=>SOL_MAINNET_GENESIS);await createMainnetApi(undefined,'publicnode').identity();expect(fetch.mock.calls[0][0]).toBe(SOL_MAINNET_CONNECTIONS.publicnode);
+    expect(()=>createMainnetApi(undefined,'https://example.com' as any)).toThrow('Unsupported');
+    const failed=vi.fn(async()=>new Response('',{status:429}));vi.stubGlobal('fetch',failed);await expect(createMainnetApi(undefined,'publicnode').rpc('sendTransaction',['synthetic'])).rejects.toThrow('unavailable');expect(failed).toHaveBeenCalledTimes(1);
+  });
+  it('counts classic tokens across owned associated and non-associated accounts without trusting wrong owners or duplicate rows',async()=>{
+    const mint={mint:MAINNET_USDT,decimals:6,mintAuthority:null,freezeAuthority:null};
+    const account={owner:'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',data:{parsed:{type:'account',info:{owner,mint:MAINNET_USDT,state:'initialized',tokenAmount:{amount:'123',decimals:6}}}}};
+    let rows=[{pubkey:MAINNET_USDT,account},{pubkey:'GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB',account}];
+    mock(()=>({value:rows}));expect(await createMainnetApi().heldBalance(owner,mint)).toBe(246n);
+    rows=[rows[0],rows[0]];await expect(createMainnetApi().heldBalance(owner,mint)).rejects.toThrow('Duplicate');
+    rows=[{...rows[0],account:{...account,data:{parsed:{type:'account',info:{...account.data.parsed.info,owner:MAINNET_USDT}}}}}];await expect(createMainnetApi().heldBalance(owner,mint)).rejects.toThrow('another');
+  });
   it('separates persistence and includes issuer-listed USDT automatically',()=>{
     expect(mainnetMints(null)).toEqual([MAINNET_USDT]);expect(mainnetMints(JSON.stringify([MAINNET_USDT,owner]))).toEqual([MAINNET_USDT,owner]);
     expect(mainnetMintsKey(owner)).not.toBe(splKey(owner));expect(mainnetJournalKey(owner)).toContain('mainnet');

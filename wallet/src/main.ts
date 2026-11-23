@@ -1,3 +1,4 @@
+import { phraseRestoreMarkup, createAnotherWalletMarkup } from './wallet-access';
 import { isMainnetNetwork } from './network-context';
 import { assetLogo } from './asset-display';
 import { installHoldingsControls } from './holdings-controls';
@@ -10,7 +11,7 @@ import { mountNetworkManager } from './network-manager';
 import { preferredNetworks } from './network-preferences';
 import { mountDemoCards } from './demo-cards-ui';
 import { installSelectPickers } from './select-picker';
-import { preserveImportedWallet, savedWalletLabel } from './wallet-migration';
+import { preserveImportedWallet, savedWalletLabel, saveWalletCopy } from './wallet-migration';
 import { ledgerMarkup, mountLedger } from './ledger';
 import { walletErrorMessage } from './error-message';
 import { filterLoadedActivity } from './activity-filter';
@@ -145,16 +146,7 @@ function vaults(): Record<string, string> {
   try { return JSON.parse(localStorage.getItem(WALLET_LIST) || '{}'); } catch { return {}; }
 }
 function saveVault(json: string, address: string) {
-  const saved = vaults();
-  const old = localStorage.getItem(VAULT_KEY);
-  if (old) {
-    const priorAddress = JSON.parse(old).address;
-    if (typeof priorAddress === 'string') saved[priorAddress.toLowerCase().replace(/^0x/, '')] = old;
-  }
-  saved[address.toLowerCase().replace(/^0x/, '')] = json;
-  // Archive first so importing cannot discard the existing wallet.
-  localStorage.setItem(WALLET_LIST, JSON.stringify(saved));
-  localStorage.setItem(VAULT_KEY, json);
+  saveWalletCopy(localStorage,WALLET_LIST,VAULT_KEY,json,address);
 }
 function loadHistory() {
   try { history = cachedActivity(JSON.parse(localStorage.getItem(historyKey(active!.address)) || '[]')); } catch { history = []; }
@@ -338,17 +330,18 @@ function accountOptions() {
   return accounts.map(account => `<option value="${account.address}" ${active && account.address.toLowerCase() === active.address.toLowerCase() ? 'selected' : ''}>${escape(accountOptionLabel(account))}</option>`).join('');
 }
 async function hydrateAccounts(password: string, wallet: LocalWallet, vaultJson: string) {
-  accountSession = new Map([[wallet.address.toLowerCase(), wallet]]);
+  const version=generation,session=new Map([[wallet.address.toLowerCase(), wallet]]);
+  accountSession = session;
   let group: AccountGroup;
   try { group = adoptActiveVault(localStorage, vaultJson); } catch { return; }
   await Promise.all(group.accounts.map(async account => {
     const key = account.address.toLowerCase();
-    if (accountSession.has(key)) return;
+    if (session.has(key)) return;
     const json = localStorage.getItem(accountVaultKey(account.address));
     if (!json) return;
     try {
       const accountWallet = await Wallet.fromEncryptedJson(json, password);
-      if (accountWallet.address.toLowerCase() === key) accountSession.set(key, accountWallet);
+      if (generation===version && active===wallet && accountSession===session && accountWallet.address.toLowerCase() === key) session.set(key, accountWallet);
     } catch { /* A legacy copy with a different password unlocks individually. */ }
   }));
 }
@@ -668,20 +661,20 @@ function activityRows() {
   }).join('');
 }
 
-function phraseRestoreForm() { return `<h3>Restore from a recovery phrase</h3><form id="phrase-form"><label for="import-phrase">Recovery phrase</label><input type="password" id="import-phrase" autocomplete="off" autocapitalize="off" spellcheck="false" required placeholder="12 or 24 words, in order"><label for="seed-passphrase">Optional BIP-39 passphrase (not your wallet password)</label><input type="password" id="seed-passphrase" autocomplete="off"><label for="account-index">Account index (0 for the first account)</label><input id="account-index" type="number" min="0" max="100" value="0" required><p class="hint">Ethereum path m/44'/60'/0'/0/index. Bitcoin and Solana use their fixed first-account paths from the same phrase. Non-empty BIP-39 passphrase imports remain Ethereum-only.</p><label for="new-password">Local encryption password (12+ characters)</label><input id="new-password" type="password" minlength="12" autocomplete="new-password" required><label for="new-confirm">Confirm local password</label><input id="new-confirm" type="password" autocomplete="new-password" required><label class="check"><input type="checkbox" required> This is a test wallet. I understand the imported account may differ if the passphrase or account index is different.</label><button class="primary">Import & switch wallet</button></form>`; }
+function phraseRestoreForm() { return phraseRestoreMarkup(); }
 
 function savedWalletButtons() {
   const saved = vaults();
   return Object.keys(saved).slice(0,100).map((key,index)=>{
     const current=saved[key]===localStorage.getItem(VAULT_KEY);
     return `<button type="button" class="quiet saved-wallet-choice" data-wallet="${escape(key)}" ${current?'disabled':''}><span class="saved-wallet-icon" aria-hidden="true">◇</span><span class="saved-wallet-identity"><strong>Wallet ${index+1}</strong><small>${escape(savedWalletLabel(key,saved[key]))}</small></span><span class="saved-wallet-state">${current?'Current':'Unlock →'}</span></button>`;
-  }).join('') || '<div class="saved-wallet-empty"><span aria-hidden="true">◇</span><strong>No other wallets saved</strong><p>Restored wallets will appear here. Each keeps its own local password.</p></div>';
+  }).join('') || '<div class="saved-wallet-empty"><span aria-hidden="true">◇</span><strong>No other wallets saved</strong><p>Create or restore another wallet here. Each keeps its own recovery phrase and local password.</p></div>';
 }
 
 function settings() {
   const saved = vaults();
   const current = active!.address.toLowerCase().replace(/^0x/, '');
-  return `<section id="settings-panel" class="card"><h2>Recovery & import</h2><p>For phrase-backed wallets, this encrypted backup restores your Ethereum, Bitcoin Testnet and Solana Devnet accounts. Imported Ethereum keys without a phrase remain Ethereum-only.</p><p>Only use fresh test wallets here. Importing preserves the current encrypted wallet.</p>
+  return `<section id="settings-panel" class="card"><h2>Recovery & import</h2><p>Phrase-backed backups preserve the recovery phrase for supported networks. Addresses depend on each chain and derivation path. Imported Ethereum keys without a phrase remain Ethereum-only.</p><p>Only use fresh test wallets here. Importing preserves the current encrypted wallet.</p>
   ${accountsMarkup()}
   <h3>Recovery phrase</h3><p>Your recovery phrase controls this wallet on every compatible network. Keep it offline and never share it.</p>
   <form id="reveal-form"><label for="reveal-password">Re-enter this wallet’s password</label><input type="password" id="reveal-password" autocomplete="current-password" required><button class="quiet">Reveal recovery phrase for 30 seconds</button></form><div id="phrase-display" aria-live="off"></div>
@@ -689,7 +682,7 @@ function settings() {
   <h3>Import an encrypted JSON backup</h3><form id="import-form"><label for="keystore">Encrypted keystore JSON</label><input id="keystore" type="file" accept=".json,application/json" required><label for="import-password">Backup password</label><input id="import-password" type="password" autocomplete="current-password" required><label for="backup-local-password">New local password (12+ characters)</label><input id="backup-local-password" type="password" minlength="12" autocomplete="new-password" required><label for="backup-local-confirm">Confirm new local password</label><input id="backup-local-confirm" type="password" autocomplete="new-password" required><button class="quiet">Import encrypted backup</button></form>
   <h3>Verify your backup</h3><p>Decrypt a downloaded backup and check its address against this wallet. Verification does not switch wallets.</p><form id="verify-backup-form"><label for="verify-backup-file">Backup JSON to verify</label><input id="verify-backup-file" type="file" accept=".json,application/json" required><label for="verify-backup-password">Password for this backup</label><input id="verify-backup-password" type="password" autocomplete="off" required><button class="quiet">Verify backup</button></form>
   <h3>Change wallet password</h3><p>Changes local encryption for this wallet only. Previously downloaded backups still use their original passwords. Download and verify a new backup afterwards.</p><form id="change-password-form"><label for="change-old-password">Current local password</label><input id="change-old-password" type="password" autocomplete="current-password" required><label for="change-new-password">New wallet password (12+ characters)</label><input id="change-new-password" type="password" minlength="12" autocomplete="new-password" required><label for="change-confirm-password">Confirm new wallet password</label><input id="change-confirm-password" type="password" autocomplete="new-password" required><button class="quiet">Change password & lock</button></form>
-  <h3>Saved wallets</h3><p>Switching locks the active wallet. Unlock the selected wallet with its own password.</p><div class="saved-wallets">${savedWalletButtons()}</div></section>`;
+  <h3>Saved wallets</h3><p>Switching locks the active wallet. Unlock the selected wallet with its own password.</p><div class="saved-wallets">${savedWalletButtons()}</div>${createAnotherWalletMarkup()}</section>`;
 }
 
 function onboarding(hasVault: boolean) {
@@ -697,7 +690,7 @@ function onboarding(hasVault: boolean) {
   <form id="vault-form"><label for="password">${hasVault ? 'Wallet password' : 'Create a password'}</label><input id="password" type="password" minlength="12" required autocomplete="${hasVault ? 'current-password' : 'new-password'}" placeholder="Enter your wallet password"><p class="auth-input-hint">Your password unlocks this device only.</p>
   ${hasVault ? '' : '<label for="confirm">Confirm password</label><input id="confirm" type="password" required autocomplete="new-password" placeholder="Enter your password again"><label class="check"><input id="understand" type="checkbox" required> I will download my encrypted backup. There is no password reset.</label>'}
   <button class="primary" ${busy ? 'disabled' : ''}>${busy ? 'Working securely…' : hasVault ? 'Unlock wallet →' : 'Create test wallet →'}</button></form><div class="auth-encryption-note"><span aria-hidden="true">&#9671;</span> Encrypted locally. Your keys stay with you.</div><div class="auth-alternatives"><span>OTHER WAYS TO EXPLORE</span><button id="open-ledger" class="auth-option"><span class="auth-option-icon" aria-hidden="true">&#9636;</span><span><strong>Connect a Ledger</strong><small>Approve on your device</small></span><span aria-hidden="true">&#8599;</span></button><button id="open-watch" class="auth-option"><span class="auth-option-icon" aria-hidden="true">&#9678;</span><span><strong>Watch an address</strong><small>Explore without importing keys</small></span><span aria-hidden="true">&#8599;</span></button></div>
-  <p class="hint">One wallet and backup for Ethereum, Bitcoin Testnet and Solana Devnet.</p>${'<details class="auth-disclosure restore-backup"><summary><span class="disclosure-icon" aria-hidden="true">↥</span><span><strong>Restore from a backup</strong><small>Import your encrypted wallet JSON</small></span></summary><p class="hint">Choose your encrypted backup and enter its original password. Set a password for this browser.</p><form id="import-form"><label for="keystore">Encrypted keystore JSON</label><input id="keystore" type="file" accept=".json,application/json" required><label for="import-password">Backup password</label><input id="import-password" type="password" required autocomplete="current-password"><label for="backup-local-password">New local password (12+ characters)</label><input id="backup-local-password" type="password" minlength="12" autocomplete="new-password" required><label for="backup-local-confirm">Confirm new local password</label><input id="backup-local-confirm" type="password" autocomplete="new-password" required><button class="quiet" '+(busy ? 'disabled' : '')+'>Restore encrypted wallet →</button></form></details>'}<details class="restore-phrase auth-disclosure"><summary><span class="disclosure-icon" aria-hidden="true">◇</span><span><strong>Restore with a recovery phrase</strong><small>Use the words from your test wallet</small></span></summary>${phraseRestoreForm()}</details><details class="auth-disclosure"><summary><span class="disclosure-icon" aria-hidden="true">▤</span><span><strong>Saved wallets</strong><small>Switch to a wallet stored on this browser</small></span></summary><p class="hint">Switching locks the current session. Use the selected wallet’s password to unlock it.</p><div class="saved-wallets">${savedWalletButtons()}</div></details></section>
+  <p class="hint">One recovery phrase for supported networks. Mainnet and testnet balances are separate.</p>${'<details class="auth-disclosure restore-backup"><summary><span class="disclosure-icon" aria-hidden="true">↥</span><span><strong>Restore from a backup</strong><small>Import your encrypted wallet JSON</small></span></summary><p class="hint">Choose your encrypted backup and enter its original password. Set a password for this browser.</p><form id="import-form"><label for="keystore">Encrypted keystore JSON</label><input id="keystore" type="file" accept=".json,application/json" required><label for="import-password">Backup password</label><input id="import-password" type="password" required autocomplete="current-password"><label for="backup-local-password">New local password (12+ characters)</label><input id="backup-local-password" type="password" minlength="12" autocomplete="new-password" required><label for="backup-local-confirm">Confirm new local password</label><input id="backup-local-confirm" type="password" autocomplete="new-password" required><button class="quiet" '+(busy ? 'disabled' : '')+'>Restore encrypted wallet →</button></form></details>'}<details class="restore-phrase auth-disclosure"><summary><span class="disclosure-icon" aria-hidden="true">◇</span><span><strong>Restore with a recovery phrase</strong><small>Use the words from your test wallet</small></span></summary>${phraseRestoreForm()}</details><details class="auth-disclosure"><summary><span class="disclosure-icon" aria-hidden="true">▤</span><span><strong>Saved wallets</strong><small>Switch to a wallet stored on this browser</small></span></summary><p class="hint">Switching locks the current session. Use the selected wallet’s password to unlock it.</p><div class="saved-wallets">${savedWalletButtons()}</div>${createAnotherWalletMarkup()}</details></section>
   <section class="intro auth-story"><div class="eyebrow">A LITTLE MORE OWNERSHIP</div><h2>Your wallet.<br><span>Your way.</span></h2><p>A calm place for your digital assets.<br>Built around one simple idea: you hold the keys.</p><div class="auth-art" aria-hidden="true"><div class="auth-orbit orbit-one"></div><div class="auth-orbit orbit-two"></div><div class="auth-vault"><div class="auth-vault-brand">&#9672; forma</div><span>SELF-CUSTODY</span><div class="auth-key">&#9671;</div><div class="auth-vault-bottom"><span>YOUR KEYS</span><span>YOUR CONTROL</span></div></div><div class="auth-art-tag"><i class="dot"></i> On your device</div></div><div class="auth-promises"><div><b>01</b><strong>Created by you</strong><p>Keys generated locally.</p></div><div><b>02</b><strong>Protected locally</strong><p>An encrypted local vault.</p></div><div><b>03</b><strong>Recovered by you</strong><p>Your backup. Your access.</p></div></div><p class="auth-story-note">Testnet wallet prototype. Use fresh test wallets only.</p></section></div>`;
 }
 
@@ -1044,6 +1037,23 @@ function bind() {
       target.replaceChildren(warning, phrase, hide);
       revealTimer = setTimeout(clearSecrets, 30000);
     }, event.currentTarget as HTMLFormElement);
+  });
+  document.getElementById('new-wallet-form')?.addEventListener('submit', event => {
+    event.preventDefault();
+    void task(async()=>{
+      const password=field('additional-password'),confirm=field('additional-confirm');
+      (document.getElementById('additional-password') as HTMLInputElement).value='';
+      (document.getElementById('additional-confirm') as HTMLInputElement).value='';
+      validatePassword(password,confirm);
+      const version=generation,wallet=Wallet.createRandom(),json=await wallet.encrypt(password);
+      if(version!==generation)return;
+      saveVault(json,wallet.address);
+      clearSecrets();generation++;active=wallet;exactBalance=null;balance='—';
+      const createdVersion=generation;
+      await hydrateAccounts(password,wallet,json);
+      if(generation!==createdVersion||active!==wallet)return;
+      loadHistory();view='settings';notice='Separate wallet created. Your previous wallets are saved. Download and verify this wallet’s backup.';render();
+    },event.currentTarget as HTMLFormElement);
   });
   document.getElementById('phrase-form')?.addEventListener('submit', event => {
     event.preventDefault();

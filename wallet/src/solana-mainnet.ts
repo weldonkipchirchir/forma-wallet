@@ -4,6 +4,8 @@ import { mintInfo, accountAmount, tokenAddress, TOKEN_PROGRAM, parseMints, type 
 import { safeNumber } from './multichain-network';
 
 export const SOL_MAINNET_RPC = 'https://api.mainnet.solana.com';
+export const SOL_MAINNET_CONNECTIONS=Object.freeze({solana:SOL_MAINNET_RPC,publicnode:'https://solana-rpc.publicnode.com'});
+export type SolanaMainnetConnection=keyof typeof SOL_MAINNET_CONNECTIONS;
 export const SOL_MAINNET_GENESIS = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
 export const MAINNET_USDT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
 export const mainnetMintsKey = (owner: string) => `forma.sol.mainnet.mints.v1:${new PublicKey(owner).toBase58()}`;
@@ -39,12 +41,14 @@ export function retainMainnetSubmission(rows: MainnetSubmission[], next: Mainnet
   const result = [...unresolved, ...merged.filter(row => !['pending','unknown'].includes(row.status))].slice(0,100);
   return mainnetJournal(JSON.stringify(result));
 }
-export function createMainnetApi(signal?: AbortSignal) {
+export function createMainnetApi(signal?: AbortSignal,connection:SolanaMainnetConnection='solana') {
+  if(!Object.prototype.hasOwnProperty.call(SOL_MAINNET_CONNECTIONS,connection))throw new Error('Unsupported Solana RPC connection.');
+  const endpoint=SOL_MAINNET_CONNECTIONS[connection];
   let sequence = 0;
   async function rpc(method: string, params: unknown[] = []) {
     const id = ++sequence;
-    const response = await fetch(SOL_MAINNET_RPC, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({jsonrpc:'2.0',id,method,params}), signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000), credentials:'omit',redirect:'error',referrerPolicy:'no-referrer',cache:'no-store' });
-    if (!response.ok) throw new Error('Solana Mainnet RPC unavailable or rate limited.');
+    const response = await fetch(endpoint, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({jsonrpc:'2.0',id,method,params}), signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000), credentials:'omit',redirect:'error',referrerPolicy:'no-referrer',cache:'no-store' });
+    if (!response.ok) throw new Error('Solana Mainnet RPC unavailable or rate limited. Choose another reviewed connection and refresh.');
     const data = await boundedJson(response, 2_000_000);
     if (data?.jsonrpc !== '2.0' || data.id !== id || data.error !== undefined || !Object.prototype.hasOwnProperty.call(data,'result')) throw new Error('Solana Mainnet request failed. Verify status before retrying.');
     return data.result;
@@ -68,5 +72,13 @@ export function createMainnetApi(signal?: AbortSignal) {
     if (!Array.isArray(result?.value) || result.value.length > 1000) throw new Error('Token discovery response exceeds supported limits. Import a mint manually.');
     return parseMints(result.value.filter((row: any) => row?.account?.owner === TOKEN_PROGRAM.toBase58() && row.account.data?.parsed?.info?.owner === owner && /^\d{1,20}$/.test(row.account.data.parsed.info.tokenAmount?.amount) && BigInt(row.account.data.parsed.info.tokenAmount.amount)>0n).map((row:any)=>row.account.data.parsed.info.mint));
   }
-  return {rpc,identity,balance,mint,account,discover};
+  async function heldBalance(owner:string,mint:SplMint){
+    new PublicKey(owner);
+    const result=await rpc('getTokenAccountsByOwner',[owner,{mint:mint.mint},{encoding:'jsonParsed',commitment:'confirmed'}]);
+    if(!Array.isArray(result?.value)||result.value.length>1000)throw new Error('Unsupported token-account response.');
+    const seen=new Set<string>();let total=0n;
+    for(const row of result.value){const address=new PublicKey(row.pubkey).toBase58();if(seen.has(address))throw new Error('Duplicate token account.');seen.add(address);total+=accountAmount(row.account,owner,mint);if(total>0xffffffffffffffffn)throw new Error('Token balance exceeds supported range.');}
+    return total;
+  }
+  return {rpc,identity,balance,mint,account,discover,heldBalance};
 }

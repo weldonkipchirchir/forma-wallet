@@ -11,6 +11,7 @@ import { mountTokenDiscovery } from './token-discovery-ui';
 import { assetLogo, assetTable, readNativeReference } from './asset-display';
 import { createRpcProvider } from './rpc-transport';
 import { listedMainnetToken, listedMainnetTokens } from './mainnet-tokens';
+import { depositContracts } from './deposit-check';
 
 const escape = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 type Review = { tx: TransactionRequest; to: string; amount: bigint; token?: Token; created: number };
@@ -98,7 +99,7 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
     amounts();
   }
   function controls() {
-    host.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>('button,input,select').forEach(el => { el.disabled = busy; });
+    host.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>('button,input,select').forEach(el => { el.disabled = busy || el.hasAttribute('data-permanent-disabled'); });
     const page = visibleTokens();
     ($('previous') as HTMLButtonElement).disabled = busy || page.page === 0;
     ($('next') as HTMLButtonElement).disabled = busy || page.page + 1 >= page.pages;
@@ -231,6 +232,21 @@ export function mountEvmWorkspace(host: HTMLElement, network: EvmNetworkId, wall
     inventorySection.hidden = session.page !== 'tokens';
     const holdings = document.createElement('section'); holdings.id = 'evm-holdings'; holdings.className = 'card holdings-shell';
     holdings.hidden = !['overview', 'portfolio'].includes(session.page); summary.after(holdings);
+    const deposit=document.createElement('section');deposit.className='card holdings-shell';
+    deposit.hidden=!['overview','tokens','activity','transfer'].includes(session.page);
+    deposit.innerHTML=`<details><summary>Deposit missing? Check a transaction</summary><p>Compare this account with your withdrawal destination: <code>${owner}</code>. Selected network: <strong>${escape(config.network)}</strong>. A token balance may need its exact contract imported; local history only lists transfers submitted here.</p><form id="evm-deposit-form"><label for="evm-deposit-hash">Public withdrawal transaction hash</label><input id="evm-deposit-hash" required pattern="0x[0-9a-fA-F]{64}" maxlength="66" autocomplete="off" placeholder="0x…"><button class="quiet">Check deposit on this network</button></form><p class="hint">Read-only lookup. Never enter a recovery phrase. Receipt events do not verify a token issuer or its current balance. Internal native transfers may require the explorer.</p><div id="evm-deposit-result" role="status"></div></details>`;holdings.after(deposit);
+    $('deposit-form').onsubmit=event=>{event.preventDefault();void run(async()=>{
+      const hash=input('deposit-hash').trim();if(!/^0x[0-9a-f]{64}$/i.test(hash))throw new Error('Enter a complete transaction hash.');
+      $('deposit-result').replaceChildren();await networkCheck();const receipt=await provider.getTransactionReceipt(hash);live();
+      if(!receipt)throw new Error('Transaction not found or not confirmed on this network. Check Binance’s withdrawal network and transaction hash.');
+      const contracts=depositContracts(receipt,hash,owner),tx=await provider.getTransaction(hash);live();
+      if(tx&&tx.chainId!==chainId)throw new Error('Transaction belongs to another chain.');
+      const native=!!tx&&tx.to?.toLowerCase()===owner.toLowerCase()&&tx.value>0n;
+      const result=$('deposit-result'),text=document.createElement('p');text.textContent=native?'Successful direct native-asset deposit to this account. Refresh balances.':contracts.length?'Incoming token transfer events found for this account. Verify each contract before tracking it.':'No standard incoming ERC-20 event or direct native transfer to this account was found. Check the destination account and explorer for internal transfers.';result.append(text);
+      const link=document.createElement('a');link.href=`${config.explorer}/tx/${hash}`;link.target='_blank';link.rel='noopener noreferrer';link.textContent='Inspect transaction on explorer ↗';result.append(link);
+      for(const address of contracts){const row=document.createElement('div');row.className='asset-row';const code=document.createElement('code');code.textContent=address;const add=document.createElement('button');add.type='button';add.className='quiet';const tracked=tokens().some(token=>token.address===address);add.textContent=tracked?'Tracked · refresh balances':'Verify & import contract';add.disabled=tracked;if(tracked)add.setAttribute('data-permanent-disabled','');add.onclick=()=>void run(async()=>{($('contract') as HTMLInputElement).value=address;await importToken();});row.append(code,add);result.append(row);}
+      await refresh();
+    });};
     const nativeLogo = document.createElement('div'); nativeLogo.className = 'holdings-native-line'; nativeLogo.innerHTML = assetLogo(config.symbol, true); $('balance').before(nativeLogo); nativeLogo.append($('balance'));
     activity.hidden = !['overview', 'activity'].includes(session.page);
     inventory(); try { history(); } catch (error) { notice((error as Error).message, true); }
