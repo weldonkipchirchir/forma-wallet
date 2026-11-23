@@ -37,4 +37,4 @@ export function boundedRpcRequest(endpoint: string): FetchRequest {
   return request;
 }
 
-export function createRpcProvider(endpoint: string) { return new JsonRpcProvider(boundedRpcRequest(endpoint)); }
+export function createRpcProvider(endpoint: string, freshReads=false) { return new JsonRpcProvider(boundedRpcRequest(endpoint),undefined,freshReads?{cacheTimeout:-1}:undefined); }

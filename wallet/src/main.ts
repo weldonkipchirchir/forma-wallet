@@ -1,3 +1,4 @@
+import {feeGuidance} from './wallet-guidance';
 import {networkLogo,networkIconPath} from './network-identity';
 import { environmentNetwork, networkLabel } from './network-environment';
 import { mountRecoveryWords, mountSeedBackup } from './recovery-words';
@@ -72,6 +73,7 @@ let disposeTron: (() => void) | undefined;
 let disposeSolanaMainnet: (() => void) | undefined;
 let pendingSeed: {address:string;phrase:string}|undefined;
 let disposeSeed: (()=>void)|undefined;
+let disposeTrade:(()=>void)|undefined;
 let disposeCrossOverview:(()=>void)|undefined;
 let disposeBitcoinMainnet: (() => void) | undefined;
 let disposeWatch: (() => void) | undefined;
@@ -118,17 +120,19 @@ function updateAmountVisibility() {
 }
 const pages: Record<string, { title: string; subtitle: string; icon: string }> = {
   networks: { title: 'Choose your network.', subtitle: 'Search supported networks, save favorites and manage your network list.', icon: '⊞' },
+  swap: {title:'Swap tokens',subtitle:'Swap Ethereum USDT and USDC with local signing and a separate review for every step.',icon:'&#8644;'},
+  buy: {title:'Buy USDT',subtitle:'Purchase with a card through an external provider.',icon:'+'},
   cards: { title: 'Explore virtual cards.', subtitle: 'Demo controls and synthetic purchases. No real payments or issued cards.', icon: '▱' },
-  tokens: { title: 'More assets. Same wallet.', subtitle: 'Track and transfer ERC-20 tokens on Ethereum Sepolia.', icon: 'T' },
-  portfolio: { title: 'Your portfolio, at a glance.', subtitle: 'Holdings and activity for your current wallet.', icon: '◈' },
-  overview: { title: 'Your money. Your move.', subtitle: 'A simple home for your digital assets.', icon: '▦' },
-  market: { title: 'A closer look at Ethereum.', subtitle: 'Live ETH/USDT prices and historical candles.', icon: '$' },
+  tokens: { title: 'Tokens', subtitle: 'Track and transfer ERC-20 tokens on Ethereum Sepolia.', icon: 'T' },
+  portfolio: { title: 'Portfolio', subtitle: 'Holdings and activity for your current wallet.', icon: '◈' },
+  overview: { title: 'Overview', subtitle: 'A simple home for your digital assets.', icon: '▦' },
+  market: { title: 'Market', subtitle: 'Live ETH/USDT prices and historical candles.', icon: '$' },
   transfer: { title: 'Send & receive.', subtitle: 'Move test ETH on Ethereum Sepolia.', icon: '↗' },
-  activity: { title: 'Every move, in view.', subtitle: 'Your incoming and outgoing Sepolia activity.', icon: '◷' },
+  activity: { title: 'Activity', subtitle: 'Your incoming and outgoing Sepolia activity.', icon: '◷' },
   ledger: { title: 'Sign on your device.', subtitle: 'Ledger hardware signing for Sepolia ETH.', icon: 'L' },
   watch: { title: 'Follow an address.', subtitle: 'Read-only tracking. No keys required.', icon: 'W' },
   contacts: { title: 'Know your recipient.', subtitle: 'Addresses you have personally confirmed.', icon: '@' },
-  settings: { title: 'Your keys. Your control.', subtitle: 'Manage recovery, backups and saved wallets.', icon: '⌑' },
+  settings: { title: 'Security & wallets', subtitle: 'Manage recovery, backups and saved wallets.', icon: '⌑' },
 };
 
 function updateSidebar() {
@@ -489,7 +493,7 @@ window.addEventListener('pageshow', event=>{if(event.persisted) {scrubSecretInpu
 window.addEventListener('storage', event => { if ((event.key === VAULT_KEY || event.key === ACCOUNTS_KEY || (active && event.key === contactsKey(active.address)) || event.key === null) && (active || busy)) lock(); });
 
 function render() {
-  disposeCrossOverview?.();disposeCrossOverview=undefined;
+  disposeCrossOverview?.();disposeCrossOverview=undefined;disposeTrade?.();disposeTrade=undefined;
   disposeSeed?.();disposeSeed=undefined;
   replacementPlan = null; replacementReviewedAt = 0;
   disposeMarket?.(); disposeMarket = undefined;
@@ -519,9 +523,10 @@ function render() {
   const available = supportsPage(selectedNetwork, view);
   const asset = networkAsset(selectedNetwork);
   const title = active && view==='overview'?'Your portfolio':active && ['overview','portfolio','transfer','activity','market','tokens','contacts','watch'].includes(view) ? networkHeading(selectedNetwork, view) : page.title;
-  const subtitle = active&&view==='overview'?'Assets across all supported networks in your selected environment.':view === 'market' ? `Live ${asset.symbol}/USDT prices and historical candles.` : selectedNetwork !== 'eth' ? `${networkLabel(selectedNetwork)} · Assets and activity for your selected account.` : page.subtitle;
+  const subtitle = active&&view==='overview'?'Assets across supported networks for your current account.':(view==='swap'||view==='buy')?page.subtitle:view === 'market' ? `Live ${asset.symbol}/USDT prices and historical candles.` : selectedNetwork !== 'eth' ? `${networkLabel(selectedNetwork)} · Assets and activity for your selected account.` : page.subtitle;
   const content = active && view === 'networks' ? '<section id="network-manager-panel"></section>'
     : active && view === 'overview' ? '<section id="cross-network-overview"></section>'
+    : active && (view==='swap'||view==='buy') ? '<section id="trade-panel"></section>'
     : active && view === 'cards' ? '<section id="demo-cards-panel"></section>'
     : !available ? `<section class="card"><h2>${asset.name}: feature unavailable</h2><p>This feature is not enabled on the selected network. Choose an available feature from the navigation or switch networks.</p></section>`
     : active && view === 'market' ? marketMarkup(selectedNetwork)
@@ -535,9 +540,9 @@ function render() {
     : active ? selectedNetwork !== 'eth' ? settings() : dashboard() + portfolio() + tokensMarkup() + marketMarkup('eth') + settings() + contactsMarkup(active.address)
     : onboarding(hasVault);
 
-  root.innerHTML = `<button id="sidebar-backdrop" aria-label="Close navigation" tabindex="-1"></button><aside id="wallet-sidebar"><a class="brand" href="/">◈ <span>forma</span></a><button id="sidebar-toggle" class="sidebar-toggle" aria-controls="wallet-sidebar" title="Toggle sidebar"></button><div class="workspace">PERSONAL WALLET</div><nav aria-label="Wallet navigation">${[['overview','Overview'],['networks','Networks'],['portfolio','Portfolio'],['tokens','Tokens'],['transfer','Send & receive'],['market','Market'],['activity','Activity'],['ledger','Ledger'],['watch','Watch-only'],['contacts','Contacts'],['cards','Cards · demo'],['settings','Recovery & import']].map(([id,label]) => `<button data-view="${id}" title="${supportsPage(selectedNetwork, id) ? label : label + ' (not enabled on this network)'}" aria-label="${label}" ${(!active && id !== 'overview') || !supportsPage(selectedNetwork, id) ? 'disabled' : ''} class="${view === id ? 'selected' : ''}" aria-current="${view === id ? 'page' : 'false'}"><span class="nav-icon" aria-hidden="true">${pages[id].icon}</span><span class="nav-label">${label}</span></button>`).join('')}</nav><div class="aside-bottom"><span class="dot"></span> Your keys. Your control.<small>Self-custody, by design.</small></div></aside>
-    <main><header><a href="/" class="entry-brand" aria-label="Forma home"><span aria-hidden="true">&#9672;</span> forma<span class="brand-caption">YOUR PERSONAL WALLET</span></a><button id="mobile-menu-toggle" class="quiet" aria-label="Open navigation" aria-controls="wallet-sidebar">&#9776;</button><div class="crumb">My wallet <span>/</span> ${view === 'multi' ? 'Bitcoin & Solana' : view === 'cards' ? 'Cards · demo' : view === 'networks' ? 'Networks' : view === 'overview' ? 'Overview' : view === 'transfer' ? 'Send & receive' : view === 'activity' ? 'Activity' : view === 'market' ? 'Market' : view === 'portfolio' ? 'Portfolio' : view === 'tokens' ? 'Tokens' : view === 'contacts' ? 'Contacts' : view === 'watch' ? 'Watch-only' : view === 'ledger' ? 'Ledger' : 'Recovery & import'}</div><div class="header-tools"><label class="theme-control" for="theme-select"><span>Appearance</span><select id="theme-select" aria-label="Appearance">${['system','light','dark'].map(t => `<option value="${t}" ${theme === t ? 'selected' : ''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}</select></label></div></header>
-    <section class="content">${active ? walletContextMarkup() : ''}<div class="title-row"><div><div class="eyebrow">A LITTLE MORE OWNERSHIP</div><h1>${title}</h1><p>${subtitle}</p></div>${active ? '<button id="lock" class="quiet">⌑ Lock wallet</button>' : '<span class="pill">◈ Self-custody</span>'}</div>
+  root.innerHTML = `<button id="sidebar-backdrop" aria-label="Close navigation" tabindex="-1"></button><aside id="wallet-sidebar"><a class="brand" href="/">◈ <span>forma</span></a><button id="sidebar-toggle" class="sidebar-toggle" aria-controls="wallet-sidebar" title="Toggle sidebar"></button><div class="workspace">PERSONAL WALLET</div><nav aria-label="Wallet navigation">${[['overview','Overview'],['networks','Networks'],['portfolio','Portfolio'],['tokens','Tokens'],['transfer','Send & receive'],['swap','Swap'],['buy','Buy USDT'],['market','Market'],['activity','Activity'],['ledger','Ledger'],['watch','Watch-only'],['contacts','Contacts'],['cards','Cards · demo'],['settings','Recovery & import']].map(([id,label]) => `<button data-view="${id}" title="${supportsPage(selectedNetwork, id) ? label : label + ' (not enabled on this network)'}" aria-label="${label}" ${(!active && id !== 'overview') || !supportsPage(selectedNetwork, id) ? 'disabled' : ''} class="${view === id ? 'selected' : ''}" aria-current="${view === id ? 'page' : 'false'}"><span class="nav-icon" aria-hidden="true">${pages[id].icon}</span><span class="nav-label">${label}</span></button>`).join('')}</nav><div class="aside-bottom"><span class="dot"></span> Your keys. Your control.<small>Self-custody, by design.</small></div></aside>
+    <main><header><a href="/" class="entry-brand" aria-label="Forma home"><span aria-hidden="true">&#9672;</span> forma<span class="brand-caption">YOUR PERSONAL WALLET</span></a><button id="mobile-menu-toggle" class="quiet" aria-label="Open navigation" aria-controls="wallet-sidebar">&#9776;</button><div class="crumb">My wallet <span>/</span> ${view === 'multi' ? 'Bitcoin & Solana' : view === 'swap' ? 'Swap' : view === 'buy' ? 'Buy USDT' : view === 'cards' ? 'Cards · demo' : view === 'networks' ? 'Networks' : view === 'overview' ? 'Overview' : view === 'transfer' ? 'Send & receive' : view === 'activity' ? 'Activity' : view === 'market' ? 'Market' : view === 'portfolio' ? 'Portfolio' : view === 'tokens' ? 'Tokens' : view === 'contacts' ? 'Contacts' : view === 'watch' ? 'Watch-only' : view === 'ledger' ? 'Ledger' : 'Recovery & import'}</div><div class="header-tools"><label class="theme-control" for="theme-select"><span>Appearance</span><select id="theme-select" aria-label="Appearance">${['system','light','dark'].map(t => `<option value="${t}" ${theme === t ? 'selected' : ''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}</select></label></div></header>
+    <section class="content">${active ? walletContextMarkup()+feeGuidance(selectedNetwork) : ''}<div class="title-row"><div><div class="eyebrow">YOUR WALLET WORKSPACE</div><h1>${title}</h1><p>${subtitle}</p></div>${active ? '<button id="lock" class="quiet">⌑ Lock wallet</button>' : '<span class="pill">◈ Self-custody</span>'}</div>
     <div class="test-banner">◇ <span>${isMainnetNetwork(selectedNetwork) ? '<strong>Live assets.</strong> Verify addresses before sending. Unaudited prototype. Cards are demo-only.' : '<strong>You’re on a test network.</strong> Use test tokens only. This prototype has not been audited.'}</span></div>
     <div id="notice" role="status" aria-live="polite">${escape(notice)}</div>
     ${content}
@@ -558,6 +563,11 @@ function render() {
     disposeNetworks = mountNetworkManager(document.getElementById('network-manager-panel')!, selectedNetwork,
       network => selectNetwork(network, 'overview'),
       () => { const select = document.getElementById('network-select'); if (select) select.innerHTML = networkOptionsMarkup(); });
+  }
+  if(active&&(view==='swap'||view==='buy')){
+    const wallet=active,version=generation,mode=view,network=selectedNetwork,host=document.getElementById('trade-panel')!;
+    host.innerHTML='<section class="card"><p role="status">Preparing your wallet tools…</p></section>';
+    void import('./trade-ui').then(module=>{if(!host.isConnected||active!==wallet||generation!==version||view!==mode)return;disposeTrade=module.mountTrade(host,wallet,network,mode,{current:()=>active===wallet&&generation===version&&view===mode,choose:next=>selectNetwork(next,mode)});}).catch(()=>{if(host.isConnected)host.textContent='Wallet tools could not load. Reload the page to try again.';});
   }
   if (active && view === 'cards') {
     const wallet = active, version = generation;
@@ -712,7 +722,7 @@ function onboarding(hasVault: boolean) {
   ${hasVault ? '' : '<label for="confirm">Confirm password</label><input id="confirm" type="password" required autocomplete="new-password" placeholder="Enter your password again"><label class="check"><input id="understand" type="checkbox" required> I will download my encrypted backup. There is no password reset.</label>'}
   <button class="primary" ${busy ? 'disabled' : ''}>${busy ? 'Working securely…' : hasVault ? 'Unlock wallet →' : 'Create wallet →'}</button></form><div class="auth-encryption-note"><span aria-hidden="true">&#9671;</span> Encrypted locally. Your keys stay with you.</div><div class="auth-alternatives"><span>OTHER WAYS TO EXPLORE</span><button id="open-ledger" class="auth-option"><span class="auth-option-icon" aria-hidden="true">&#9636;</span><span><strong>Connect a Ledger</strong><small>Approve on your device</small></span><span aria-hidden="true">&#8599;</span></button><button id="open-watch" class="auth-option"><span class="auth-option-icon" aria-hidden="true">&#9678;</span><span><strong>Watch an address</strong><small>Explore without importing keys</small></span><span aria-hidden="true">&#8599;</span></button></div>
   <p class="hint">One recovery phrase for supported networks. Mainnet and testnet balances are separate.</p>${'<details class="auth-disclosure restore-backup"><summary><span class="disclosure-icon" aria-hidden="true">↥</span><span><strong>Restore from a backup</strong><small>Import your encrypted wallet JSON</small></span></summary><p class="hint">Choose your encrypted backup and enter its original password. Set a password for this browser.</p><form id="import-form"><label for="keystore">Encrypted keystore JSON</label><input id="keystore" type="file" accept=".json,application/json" required><label for="import-password">Backup password</label><input id="import-password" type="password" required autocomplete="current-password"><label for="backup-local-password">New local password (12+ characters)</label><input id="backup-local-password" type="password" minlength="12" autocomplete="new-password" required><label for="backup-local-confirm">Confirm new local password</label><input id="backup-local-confirm" type="password" autocomplete="new-password" required><button class="quiet" '+(busy ? 'disabled' : '')+'>Restore encrypted wallet →</button></form></details>'}<details class="restore-phrase auth-disclosure"><summary><span class="disclosure-icon" aria-hidden="true">◇</span><span><strong>Restore with a recovery phrase</strong><small>Use the words from your wallet</small></span></summary>${phraseRestoreForm()}</details><details class="auth-disclosure"><summary><span class="disclosure-icon" aria-hidden="true">▤</span><span><strong>Saved wallets</strong><small>Switch to a wallet stored on this browser</small></span></summary><p class="hint">Switching locks the current session. Use the selected wallet’s password to unlock it.</p><div class="saved-wallets">${savedWalletButtons()}</div>${createAnotherWalletMarkup()}</details></section>
-  <section class="intro auth-story"><div class="eyebrow">A LITTLE MORE OWNERSHIP</div><h2>Your wallet.<br><span>Your way.</span></h2><p>A calm place for your digital assets.<br>Built around one simple idea: you hold the keys.</p><div class="auth-art" aria-hidden="true"><div class="auth-orbit orbit-one"></div><div class="auth-orbit orbit-two"></div><div class="auth-vault"><div class="auth-vault-brand">&#9672; forma</div><span>SELF-CUSTODY</span><div class="auth-key">&#9671;</div><div class="auth-vault-bottom"><span>YOUR KEYS</span><span>YOUR CONTROL</span></div></div><div class="auth-art-tag"><i class="dot"></i> On your device</div></div><div class="auth-promises"><div><b>01</b><strong>Created by you</strong><p>Keys generated locally.</p></div><div><b>02</b><strong>Protected locally</strong><p>An encrypted local vault.</p></div><div><b>03</b><strong>Recovered by you</strong><p>Your backup. Your access.</p></div></div><p class="auth-story-note">Self-custody prototype. Keep a separate backup for every wallet.</p></section></div>`;
+  <section class="intro auth-story"><div class="eyebrow">YOUR WALLET WORKSPACE</div><h2>Your wallet.<br><span>Your way.</span></h2><p>A calm place for your digital assets.<br>Built around one simple idea: you hold the keys.</p><div class="auth-art" aria-hidden="true"><div class="auth-orbit orbit-one"></div><div class="auth-orbit orbit-two"></div><div class="auth-vault"><div class="auth-vault-brand">&#9672; forma</div><span>SELF-CUSTODY</span><div class="auth-key">&#9671;</div><div class="auth-vault-bottom"><span>YOUR KEYS</span><span>YOUR CONTROL</span></div></div><div class="auth-art-tag"><i class="dot"></i> On your device</div></div><div class="auth-promises"><div><b>01</b><strong>Created by you</strong><p>Keys generated locally.</p></div><div><b>02</b><strong>Protected locally</strong><p>An encrypted local vault.</p></div><div><b>03</b><strong>Recovered by you</strong><p>Your backup. Your access.</p></div></div><p class="auth-story-note">Self-custody prototype. Keep a separate backup for every wallet.</p></section></div>`;
 }
 
 function walletContextMarkup(){return `<section class="wallet-context" aria-label="Wallet context"><label>Environment<select id="environment-select" aria-label="Wallet environment"><option value="mainnet" ${isMainnetNetwork(selectedNetwork)?'selected':''}>Mainnet</option><option value="testnet" ${!isMainnetNetwork(selectedNetwork)?'selected':''}>Testnet</option></select></label><label>Account<select id="account-select" aria-label="Wallet account">${accountOptions()}</select></label><label class="context-chain">Network<select id="network-select" aria-label="Wallet network">${networkOptionsMarkup()}</select></label></section>`;}

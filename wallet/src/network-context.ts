@@ -18,7 +18,7 @@ export function usesNativeWorkspace(id: NetworkId, page: string) {
   return (id === 'btc' || id === 'sol') && (['overview', 'portfolio', 'transfer', 'activity'].includes(page) || (id === 'sol' && page === 'tokens'));
 }
 export function supportsPage(id: NetworkId, page: string) {
-  if (page === 'networks' || page === 'cards') return true;
+  if (page === 'networks' || page === 'cards' || page==='swap' || page==='buy') return true;
   if (id === 'sol-mainnet') return ['overview','portfolio','transfer','tokens','activity','market','settings'].includes(page);
   if (id === 'btc-mainnet') return ['overview','portfolio','transfer','activity','market','settings'].includes(page);
   if (id === 'tron' || id === 'tron-mainnet') return ['overview', 'portfolio', 'transfer', 'tokens', 'activity', 'market', 'settings'].includes(page);

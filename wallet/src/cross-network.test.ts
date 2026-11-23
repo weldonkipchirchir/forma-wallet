@@ -1,5 +1,6 @@
 import {afterEach,describe,it,expect,vi} from 'vitest';
-import {Wallet,AbiCoder} from 'ethers';
+import {Wallet,HDNodeWallet,AbiCoder} from 'ethers';
+import {SOL_MAINNET_GENESIS,MAINNET_USDT,MAINNET_USDC} from './solana-mainnet';
 import {backupPositions} from './recovery-words';
 import {environmentNetworks,scanNetworks,createCrossNetworkReader,type NetworkHolding} from './cross-network-data';
 import {portfolioRows} from './cross-network-ui';
@@ -8,6 +9,17 @@ import {evmTokenKey} from './evm-assets';
 import {listedMainnetTokens} from './mainnet-tokens';
 afterEach(()=>vi.unstubAllGlobals());
 describe('cross-network portfolio isolation and read boundaries',()=>{
+  it('reads SOL and discovered classic tokens through a verified alternate provider without manual switching',async()=>{
+    const wallet=HDNodeWallet.fromPhrase('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'),custom='GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB',program='TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+    const fetch=vi.fn(async(url:string,init:RequestInit)=>{if(url==='https://api.mainnet.solana.com')return new Response('limited',{status:429});expect(url).toBe('https://solana-rpc.publicnode.com');const r=JSON.parse(init.body as string),owner=r.params[0];let result:any;
+      if(r.method==='getGenesisHash')result=SOL_MAINNET_GENESIS;
+      else if(r.method==='getBalance')result={value:5000000000};
+      else if(r.method==='getAccountInfo')result={value:{owner:program,data:{parsed:{type:'mint',info:{isInitialized:true,decimals:6,mintAuthority:null,freezeAuthority:null}}}}};
+      else {const mint=r.params[1].mint||custom;result={value:[{pubkey:'11111111111111111111111111111111',account:{owner:program,data:{parsed:{type:'account',info:{owner,mint,state:'initialized',tokenAmount:{amount:'2500000',decimals:6}}}}}}]};}
+      return new Response(JSON.stringify({jsonrpc:'2.0',id:r.id,result}));
+    });vi.stubGlobal('fetch',fetch);
+    const reader=createCrossNetworkReader(wallet,{getItem:()=>null},new AbortController().signal,()=>true);try{const rows=await reader.read('sol-mainnet');expect(rows[0].amount).toBe('5.0');expect(rows.find(row=>row.id===MAINNET_USDT)?.priceSymbol).toBe('USDT');expect(rows.find(row=>row.id===MAINNET_USDC)?.symbol).toBe('USDC');expect(rows.find(row=>row.id===custom)).toMatchObject({amount:'2.5',verified:false,priceSymbol:undefined});expect(fetch.mock.calls.filter(call=>call[0]==='https://api.mainnet.solana.com')).toHaveLength(1);}finally{reader.dispose();}
+  });
   it('never mixes live and test networks, and leaves failed reads unavailable',async()=>{
     expect(environmentNetworks(true)).toHaveLength(19);expect(environmentNetworks(false)).toHaveLength(15);expect(environmentNetworks(true).every(isMainnetNetwork)).toBe(true);expect(environmentNetworks(false).some(isMainnetNetwork)).toBe(false);
     const updates:NetworkHolding[][]=[];await scanNetworks(['btc-mainnet'],async()=>{throw Error('offline');},()=>true,(_id,rows)=>updates.push(rows));expect(updates[0][0].amount).toBeUndefined();

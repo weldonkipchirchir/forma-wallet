@@ -8,6 +8,8 @@ export const SOL_MAINNET_CONNECTIONS=Object.freeze({solana:SOL_MAINNET_RPC,publi
 export type SolanaMainnetConnection=keyof typeof SOL_MAINNET_CONNECTIONS;
 export const SOL_MAINNET_GENESIS = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
 export const MAINNET_USDT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
+export const MAINNET_USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+export function listedSolanaMint(address:string){return address===MAINNET_USDT?'USDT':address===MAINNET_USDC?'USDC':undefined;}
 export const mainnetMintsKey = (owner: string) => `forma.sol.mainnet.mints.v1:${new PublicKey(owner).toBase58()}`;
 export const mainnetJournalKey = (owner: string) => `forma.sol.mainnet.submissions.v1:${new PublicKey(owner).toBase58()}`;
 export type MainnetSubmission = { id: string; to: string; amount: string; decimals: number; mint?: string; expiry: number; when: number; status: 'unknown' | 'pending' | 'confirmed' | 'failed' };
@@ -15,7 +17,7 @@ export function mainnetMints(raw: string | null) {
   if (raw && raw.length > 10000) throw new Error('Mainnet token storage is too large.');
   const value = JSON.parse(raw || '[]');
   if (!Array.isArray(value)) throw new Error('Invalid mainnet token storage.');
-  return [MAINNET_USDT, ...parseMints(value).filter(mint => mint !== MAINNET_USDT)].slice(0, 25);
+  return [MAINNET_USDT, MAINNET_USDC, ...parseMints(value).filter(mint => mint !== MAINNET_USDT && mint !== MAINNET_USDC)];
 }
 export function mainnetJournal(raw: string | null): MainnetSubmission[] {
   if (raw && raw.length > 100000) throw new Error('Mainnet submission storage is too large. Sending blocked.');
@@ -41,23 +43,35 @@ export function retainMainnetSubmission(rows: MainnetSubmission[], next: Mainnet
   const result = [...unresolved, ...merged.filter(row => !['pending','unknown'].includes(row.status))].slice(0,100);
   return mainnetJournal(JSON.stringify(result));
 }
-export function createMainnetApi(signal?: AbortSignal,connection:SolanaMainnetConnection='solana') {
+export function createMainnetApi(signal?: AbortSignal,connection:SolanaMainnetConnection='solana',readFallback=false) {
   if(!Object.prototype.hasOwnProperty.call(SOL_MAINNET_CONNECTIONS,connection))throw new Error('Unsupported Solana RPC connection.');
   const endpoint=SOL_MAINNET_CONNECTIONS[connection];
   let sequence = 0;
-  async function rpc(method: string, params: unknown[] = []) {
+  async function request(target:string,method: string, params: unknown[] = []) {
     const id = ++sequence;
-    const response = await fetch(endpoint, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({jsonrpc:'2.0',id,method,params}), signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000), credentials:'omit',redirect:'error',referrerPolicy:'no-referrer',cache:'no-store' });
+    const response = await fetch(target, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({jsonrpc:'2.0',id,method,params}), signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000), credentials:'omit',redirect:'error',referrerPolicy:'no-referrer',cache:'no-store' });
     if (!response.ok) throw new Error('Solana Mainnet RPC unavailable or rate limited. Choose another reviewed connection and refresh.');
     const data = await boundedJson(response, 2_000_000);
     if (data?.jsonrpc !== '2.0' || data.id !== id || data.error !== undefined || !Object.prototype.hasOwnProperty.call(data,'result')) throw new Error('Solana Mainnet request failed. Verify status before retrying.');
     return data.result;
   }
+  const readMethods=new Set(['getGenesisHash','getBalance','getAccountInfo','getTokenAccountsByOwner','getSignatureStatuses']);
+  let readEndpoint=endpoint;
+  async function rpc(method:string,params:unknown[]=[]):Promise<any>{
+    const read=readFallback&&readMethods.has(method);
+    try{return await request(read?readEndpoint:endpoint,method,params);}catch(error){
+      if(!read||signal?.aborted||readEndpoint!==endpoint)throw error;
+      const alternate=connection==='solana'?SOL_MAINNET_CONNECTIONS.publicnode:SOL_MAINNET_CONNECTIONS.solana;
+      if(await request(alternate,'getGenesisHash')!==SOL_MAINNET_GENESIS)throw new Error('Wrong Solana network returned by alternate connection.');
+      readEndpoint=alternate;
+      return method==='getGenesisHash'?SOL_MAINNET_GENESIS:request(alternate,method,params);
+    }
+  }
   async function identity() { if (await rpc('getGenesisHash') !== SOL_MAINNET_GENESIS) throw new Error('Wrong Solana network. Mainnet operation blocked.'); }
   async function balance(owner: string) { return BigInt(safeNumber((await rpc('getBalance',[owner,{commitment:'confirmed'}]))?.value)); }
   async function mint(address: string): Promise<SplMint> {
     const info = mintInfo(address,(await rpc('getAccountInfo',[address,{encoding:'jsonParsed',commitment:'confirmed'}]))?.value);
-    if (address === MAINNET_USDT && info.decimals !== 6) throw new Error('Official USDT mint decimals differ. Operation blocked.');
+    if (listedSolanaMint(address) && info.decimals !== 6) throw new Error('Official stablecoin mint decimals differ. Operation blocked.');
     return info;
   }
   async function account(owner: string, mint: SplMint) {
@@ -70,7 +84,8 @@ export function createMainnetApi(signal?: AbortSignal,connection:SolanaMainnetCo
     await identity();
     const result = await rpc('getTokenAccountsByOwner',[owner,{programId:TOKEN_PROGRAM.toBase58()},{encoding:'jsonParsed',commitment:'confirmed'}]);
     if (!Array.isArray(result?.value) || result.value.length > 1000) throw new Error('Token discovery response exceeds supported limits. Import a mint manually.');
-    return parseMints(result.value.filter((row: any) => row?.account?.owner === TOKEN_PROGRAM.toBase58() && row.account.data?.parsed?.info?.owner === owner && /^\d{1,20}$/.test(row.account.data.parsed.info.tokenAmount?.amount) && BigInt(row.account.data.parsed.info.tokenAmount.amount)>0n).map((row:any)=>row.account.data.parsed.info.mint));
+    const found=result.value.filter((row: any) => row?.account?.owner === TOKEN_PROGRAM.toBase58() && row.account.data?.parsed?.info?.owner === owner && /^\d{1,20}$/.test(row.account.data.parsed.info.tokenAmount?.amount) && BigInt(row.account.data.parsed.info.tokenAmount.amount)>0n).map((row:any)=>new PublicKey(row.account.data.parsed.info.mint).toBase58());
+    return [...new Set<string>(found)].slice(0,250);
   }
   async function heldBalance(owner:string,mint:SplMint){
     new PublicKey(owner);

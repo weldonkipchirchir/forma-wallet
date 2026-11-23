@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createMainnetApi, SOL_MAINNET_CONNECTIONS, SOL_MAINNET_GENESIS, SOL_MAINNET_RPC, MAINNET_USDT, mainnetMints, mainnetMintsKey, mainnetJournal, mainnetJournalKey, retainMainnetSubmission, type MainnetSubmission } from './solana-mainnet';
+import { createMainnetApi, SOL_MAINNET_CONNECTIONS, SOL_MAINNET_GENESIS, SOL_MAINNET_RPC, MAINNET_USDT, MAINNET_USDC, mainnetMints, mainnetMintsKey, mainnetJournal, mainnetJournalKey, retainMainnetSubmission, type MainnetSubmission } from './solana-mainnet';
 import { splKey } from './sol-tokens';
 import { assetTable } from './asset-display';
 import { supportsPage, savedNetwork } from './network-context';
 import { HDNodeWallet } from 'ethers';
+import {PublicKey} from '@solana/web3.js';
 import { deriveMulti, clearMulti, solTransfer, signSol } from './multichain-core';
 import { splTransaction, signSpl } from './sol-tokens';
 const owner='11111111111111111111111111111111';
@@ -11,6 +12,17 @@ const row:MainnetSubmission={id:'2'.repeat(88),to:MAINNET_USDT,amount:'1000000',
 afterEach(()=>vi.unstubAllGlobals());
 function mock(result:(method:string,params:any[])=>unknown){const fetch=vi.fn(async(_url,init)=>{const data=JSON.parse(init.body);return new Response(JSON.stringify({jsonrpc:'2.0',id:data.id,result:result(data.method,data.params)}));});vi.stubGlobal('fetch',fetch);return fetch;}
 describe('isolated Solana Mainnet',()=>{
+  it('fails over balance reads only after verifying the alternate genesis, never broadcasts twice',async()=>{
+    const fetch=vi.fn(async(url,init)=>{const r=JSON.parse(init.body);if(url===SOL_MAINNET_RPC)throw Error('rate limited');return new Response(JSON.stringify({jsonrpc:'2.0',id:r.id,result:r.method==='getGenesisHash'?SOL_MAINNET_GENESIS:{value:5000000}}));});vi.stubGlobal('fetch',fetch);
+    const api=createMainnetApi(undefined,'solana',true);await expect(api.balance(owner)).resolves.toBe(5000000n);
+    expect(fetch.mock.calls.map(call=>call[0])).toEqual([SOL_MAINNET_RPC,SOL_MAINNET_CONNECTIONS.publicnode,SOL_MAINNET_CONNECTIONS.publicnode]);
+    fetch.mockClear();await expect(api.rpc('sendTransaction',['synthetic'])).rejects.toThrow();expect(fetch).toHaveBeenCalledTimes(1);expect(fetch.mock.calls[0][0]).toBe(SOL_MAINNET_RPC);
+  });
+  it('rejects an alternate wrong-chain provider and does not fail over after cancellation',async()=>{
+    const fetch=vi.fn(async(url,init)=>{if(url===SOL_MAINNET_RPC)throw Error('offline');const r=JSON.parse(init.body);return new Response(JSON.stringify({jsonrpc:'2.0',id:r.id,result:'devnet'}));});vi.stubGlobal('fetch',fetch);
+    await expect(createMainnetApi(undefined,'solana',true).balance(owner)).rejects.toThrow('Wrong Solana network');
+    fetch.mockClear();const abort=new AbortController();abort.abort();await expect(createMainnetApi(abort.signal,'solana',true).balance(owner)).rejects.toThrow();expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it('pins manual provider selection and never retries or silently fails over a broadcast',async()=>{
     const fetch=mock(()=>SOL_MAINNET_GENESIS);await createMainnetApi(undefined,'publicnode').identity();expect(fetch.mock.calls[0][0]).toBe(SOL_MAINNET_CONNECTIONS.publicnode);
     expect(()=>createMainnetApi(undefined,'https://example.com' as any)).toThrow('Unsupported');
@@ -25,10 +37,11 @@ describe('isolated Solana Mainnet',()=>{
     rows=[{...rows[0],account:{...account,data:{parsed:{type:'account',info:{...account.data.parsed.info,owner:MAINNET_USDT}}}}}];await expect(createMainnetApi().heldBalance(owner,mint)).rejects.toThrow('another');
   });
   it('separates persistence and includes issuer-listed USDT automatically',()=>{
-    expect(mainnetMints(null)).toEqual([MAINNET_USDT]);expect(mainnetMints(JSON.stringify([MAINNET_USDT,owner]))).toEqual([MAINNET_USDT,owner]);
+    expect(mainnetMints(null)).toEqual([MAINNET_USDT,MAINNET_USDC]);expect(mainnetMints(JSON.stringify([MAINNET_USDT,owner]))).toEqual([MAINNET_USDT,MAINNET_USDC,owner]);
     expect(mainnetMintsKey(owner)).not.toBe(splKey(owner));expect(mainnetJournalKey(owner)).toContain('mainnet');
     expect(savedNetwork('sol-mainnet')).toBe('sol-mainnet');expect(supportsPage('sol-mainnet','transfer')).toBe(true);expect(supportsPage('sol-mainnet','watch')).toBe(false);
   });
+  it('keeps all 25 custom mints when issuer presets are added',()=>{const custom=Array.from({length:25},(_,index)=>new PublicKey(new Uint8Array(32).fill(index+1)).toBase58());const list=mainnetMints(JSON.stringify(custom));expect(list).toHaveLength(27);expect(custom.every(mint=>list.includes(mint))).toBe(true);expect(list).toContain(MAINNET_USDC);});
   it('rejects Devnet and mismatched RPC identities before proceeding',async()=>{
     const fetch=mock(()=> 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG');
     await expect(createMainnetApi().identity()).rejects.toThrow('Wrong Solana network');expect(fetch).toHaveBeenCalledTimes(1);
