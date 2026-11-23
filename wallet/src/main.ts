@@ -1,3 +1,5 @@
+import { environmentNetwork, networkLabel } from './network-environment';
+import { mountRecoveryWords, mountSeedBackup } from './recovery-words';
 import { phraseRestoreMarkup, createAnotherWalletMarkup } from './wallet-access';
 import { isMainnetNetwork } from './network-context';
 import { assetLogo } from './asset-display';
@@ -67,6 +69,8 @@ let disposeNetworks: (() => void) | undefined;
 let disposeCards: (() => void) | undefined;
 let disposeTron: (() => void) | undefined;
 let disposeSolanaMainnet: (() => void) | undefined;
+let pendingSeed: {address:string;phrase:string}|undefined;
+let disposeSeed: (()=>void)|undefined;
 let disposeBitcoinMainnet: (() => void) | undefined;
 let disposeWatch: (() => void) | undefined;
 let disposeTokenSummary: (() => void) | undefined;
@@ -153,7 +157,7 @@ function loadHistory() {
   cursors = [null, null];
 }
 function persistHistory() { if (active) localStorage.setItem(historyKey(active.address), JSON.stringify(history)); }
-function clearSecrets() { clearTimeout(revealTimer); document.getElementById('phrase-display')?.replaceChildren(); document.getElementById('key-display')?.replaceChildren(); }
+function clearSecrets() { pendingSeed=undefined;disposeSeed?.();disposeSeed=undefined;clearTimeout(revealTimer); document.getElementById('phrase-display')?.replaceChildren(); document.getElementById('key-display')?.replaceChildren(); }
 function navigate(next: string) { if (next === 'multi') next = 'overview'; generation++; clearSecrets(); pending = null; replacementPlan = null; view = next; render(); }
 async function withActiveSepoliaLock(work: () => Promise<void>) {
   const wallet = active, version = generation;
@@ -483,6 +487,7 @@ window.addEventListener('pageshow', event=>{if(event.persisted) {scrubSecretInpu
 window.addEventListener('storage', event => { if ((event.key === VAULT_KEY || event.key === ACCOUNTS_KEY || (active && event.key === contactsKey(active.address)) || event.key === null) && (active || busy)) lock(); });
 
 function render() {
+  disposeSeed?.();disposeSeed=undefined;
   replacementPlan = null; replacementReviewedAt = 0;
   disposeMarket?.(); disposeMarket = undefined;
   disposePortfolio?.(); disposePortfolio = undefined;
@@ -511,7 +516,7 @@ function render() {
   const available = supportsPage(selectedNetwork, view);
   const asset = networkAsset(selectedNetwork);
   const title = active && ['overview','portfolio','transfer','activity','market','tokens','contacts','watch'].includes(view) ? networkHeading(selectedNetwork, view) : page.title;
-  const subtitle = view === 'market' ? `Live ${asset.symbol}/USDT prices and historical candles.` : additionalEvm ? `${asset.network} · ${asset.symbol} and imported ERC-20 tokens for your selected account.` : native ? `${asset.network} · Native ${asset.symbol} accounts from your wallet recovery phrase.` : page.subtitle;
+  const subtitle = view === 'market' ? `Live ${asset.symbol}/USDT prices and historical candles.` : selectedNetwork !== 'eth' ? `${networkLabel(selectedNetwork)} · Assets and activity for your selected account.` : page.subtitle;
   const content = active && view === 'networks' ? '<section id="network-manager-panel"></section>'
     : active && view === 'cards' ? '<section id="demo-cards-panel"></section>'
     : !available ? `<section class="card"><h2>${asset.name}: feature unavailable</h2><p>This feature is not enabled on the selected network. Choose an available feature from the navigation or switch networks.</p></section>`
@@ -527,12 +532,12 @@ function render() {
     : onboarding(hasVault);
 
   root.innerHTML = `<button id="sidebar-backdrop" aria-label="Close navigation" tabindex="-1"></button><aside id="wallet-sidebar"><a class="brand" href="/">◈ <span>forma</span></a><button id="sidebar-toggle" class="sidebar-toggle" aria-controls="wallet-sidebar" title="Toggle sidebar"></button><div class="workspace">PERSONAL WALLET</div><nav aria-label="Wallet navigation">${[['overview','Overview'],['networks','Networks'],['portfolio','Portfolio'],['tokens','Tokens'],['transfer','Send & receive'],['market','Market'],['activity','Activity'],['ledger','Ledger'],['watch','Watch-only'],['contacts','Contacts'],['cards','Cards · demo'],['settings','Recovery & import']].map(([id,label]) => `<button data-view="${id}" title="${supportsPage(selectedNetwork, id) ? label : label + ' (not enabled on this network)'}" aria-label="${label}" ${(!active && id !== 'overview') || !supportsPage(selectedNetwork, id) ? 'disabled' : ''} class="${view === id ? 'selected' : ''}" aria-current="${view === id ? 'page' : 'false'}"><span class="nav-icon" aria-hidden="true">${pages[id].icon}</span><span class="nav-label">${label}</span></button>`).join('')}</nav><div class="aside-bottom"><span class="dot"></span> Your keys. Your control.<small>Self-custody, by design.</small></div></aside>
-    <main><header><a href="/" class="entry-brand" aria-label="Forma home"><span aria-hidden="true">&#9672;</span> forma<span class="brand-caption">YOUR PERSONAL WALLET</span></a><button id="mobile-menu-toggle" class="quiet" aria-label="Open navigation" aria-controls="wallet-sidebar">&#9776;</button><div class="crumb">My wallet <span>/</span> ${view === 'multi' ? 'Bitcoin & Solana' : view === 'cards' ? 'Cards · demo' : view === 'networks' ? 'Networks' : view === 'overview' ? 'Overview' : view === 'transfer' ? 'Send & receive' : view === 'activity' ? 'Activity' : view === 'market' ? 'Market' : view === 'portfolio' ? 'Portfolio' : view === 'tokens' ? 'Tokens' : view === 'contacts' ? 'Contacts' : view === 'watch' ? 'Watch-only' : view === 'ledger' ? 'Ledger' : 'Recovery & import'}</div><div class="header-tools"><label class="theme-control" for="theme-select"><span>Appearance</span><select id="theme-select" aria-label="Appearance">${['system','light','dark'].map(t => `<option value="${t}" ${theme === t ? 'selected' : ''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}</select></label>${active ? `<label class="network-control" for="account-select"><span>Account</span><select id="account-select" aria-label="Wallet account">${accountOptions()}</select></label>` : ''}${active ? `<label class="network-control" for="network-select"><span>Network</span><select id="network-select" aria-label="Wallet network">${networkOptionsMarkup()}</select></label>` : ''}<div class="network"><span class="dot"></span> ${networkAsset(selectedNetwork).network} <b>${isMainnetNetwork(selectedNetwork) ? 'MAINNET' : 'TESTNET'}</b></div></div></header>
-    <section class="content"><div class="title-row"><div><div class="eyebrow">A LITTLE MORE OWNERSHIP</div><h1>${title}</h1><p>${subtitle}</p></div>${active ? '<button id="lock" class="quiet">⌑ Lock wallet</button>' : '<span class="pill">◈ Self-custody</span>'}</div>
-    <div class="test-banner">◇ <span>${isMainnetNetwork(selectedNetwork) ? '<strong>Mainnet · real funds.</strong> Check addresses and fees carefully. This wallet has not been independently audited. Cards remain demo-only.' : '<strong>You’re on a test network.</strong> Use test tokens only. This prototype has not been audited.'}</span></div>
+    <main><header><a href="/" class="entry-brand" aria-label="Forma home"><span aria-hidden="true">&#9672;</span> forma<span class="brand-caption">YOUR PERSONAL WALLET</span></a><button id="mobile-menu-toggle" class="quiet" aria-label="Open navigation" aria-controls="wallet-sidebar">&#9776;</button><div class="crumb">My wallet <span>/</span> ${view === 'multi' ? 'Bitcoin & Solana' : view === 'cards' ? 'Cards · demo' : view === 'networks' ? 'Networks' : view === 'overview' ? 'Overview' : view === 'transfer' ? 'Send & receive' : view === 'activity' ? 'Activity' : view === 'market' ? 'Market' : view === 'portfolio' ? 'Portfolio' : view === 'tokens' ? 'Tokens' : view === 'contacts' ? 'Contacts' : view === 'watch' ? 'Watch-only' : view === 'ledger' ? 'Ledger' : 'Recovery & import'}</div><div class="header-tools"><label class="theme-control" for="theme-select"><span>Appearance</span><select id="theme-select" aria-label="Appearance">${['system','light','dark'].map(t => `<option value="${t}" ${theme === t ? 'selected' : ''}>${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}</select></label></div></header>
+    <section class="content">${active ? walletContextMarkup() : ''}<div class="title-row"><div><div class="eyebrow">A LITTLE MORE OWNERSHIP</div><h1>${title}</h1><p>${subtitle}</p></div>${active ? '<button id="lock" class="quiet">⌑ Lock wallet</button>' : '<span class="pill">◈ Self-custody</span>'}</div>
+    <div class="test-banner">◇ <span>${isMainnetNetwork(selectedNetwork) ? '<strong>Live assets.</strong> Verify addresses before sending. Unaudited prototype. Cards are demo-only.' : '<strong>You’re on a test network.</strong> Use test tokens only. This prototype has not been audited.'}</span></div>
     <div id="notice" role="status" aria-live="polite">${escape(notice)}</div>
     ${content}
-    <footer class="wallet-footer"><div class="footer-brand"><strong>FORMA</strong><span>Your keys. Your control.</span></div><div class="footer-meta"><span id="footer-network"><i class="dot"></i>${networkAsset(selectedNetwork).network}</span><span>Self-custody</span><span class="footer-version">Prototype v0.1</span></div></footer></section></main>`;
+    <footer class="wallet-footer"><div class="footer-brand"><strong>FORMA</strong><span>Your keys. Your control.</span></div><div class="footer-meta"><span id="footer-network"><i class="dot"></i>${networkLabel(selectedNetwork)}</span><span>Self-custody</span><span class="footer-version">Prototype v0.1</span></div></footer></section></main>`;
   document.getElementById('lock')?.addEventListener('click', lock);
   if (active && view === 'networks') {
     disposeNetworks = mountNetworkManager(document.getElementById('network-manager-panel')!, selectedNetwork,
@@ -544,6 +549,7 @@ function render() {
     disposeCards = mountDemoCards(document.getElementById('demo-cards-panel')!, wallet.address, () => active === wallet && generation === version);
   }
   bind();
+  if(active&&pendingSeed?.address===active.address)disposeSeed=mountSeedBackup(root,pendingSeed.phrase,()=>{pendingSeed=undefined;notice='Recovery phrase confirmed. Keep your offline copy safe and save an encrypted backup too.';render();});
   updateAmountVisibility();
   updateSidebar();
   document.getElementById('sidebar-toggle')!.onclick = () => {
@@ -686,16 +692,17 @@ function settings() {
 }
 
 function onboarding(hasVault: boolean) {
-  return `<div class="setup-grid auth-shell"><section class="card setup auth-card"><div class="auth-card-top"><span class="auth-lock" aria-hidden="true">&#9635;</span><span class="auth-local">LOCAL WALLET</span></div><div class="icon-large" hidden>◈</div><div class="eyebrow">YOUR OWN SPACE</div><h1>${hasVault ? 'Welcome back.' : 'Start with ownership.'}</h1><p>${hasVault ? 'Unlock the wallet saved on this browser.' : 'Create a fresh test wallet. Your keys are encrypted on this device with a password only you know.'}</p>
+  return `<div class="setup-grid auth-shell"><section class="card setup auth-card"><div class="auth-card-top"><span class="auth-lock" aria-hidden="true">&#9635;</span><span class="auth-local">LOCAL WALLET</span></div><div class="icon-large" hidden>◈</div><div class="eyebrow">YOUR OWN SPACE</div><h1>${hasVault ? 'Welcome back.' : 'Start with ownership.'}</h1><p>${hasVault ? 'Unlock the wallet saved on this browser.' : 'Create a wallet. Your keys are encrypted on this device with a password only you know.'}</p>
   <form id="vault-form"><label for="password">${hasVault ? 'Wallet password' : 'Create a password'}</label><input id="password" type="password" minlength="12" required autocomplete="${hasVault ? 'current-password' : 'new-password'}" placeholder="Enter your wallet password"><p class="auth-input-hint">Your password unlocks this device only.</p>
   ${hasVault ? '' : '<label for="confirm">Confirm password</label><input id="confirm" type="password" required autocomplete="new-password" placeholder="Enter your password again"><label class="check"><input id="understand" type="checkbox" required> I will download my encrypted backup. There is no password reset.</label>'}
-  <button class="primary" ${busy ? 'disabled' : ''}>${busy ? 'Working securely…' : hasVault ? 'Unlock wallet →' : 'Create test wallet →'}</button></form><div class="auth-encryption-note"><span aria-hidden="true">&#9671;</span> Encrypted locally. Your keys stay with you.</div><div class="auth-alternatives"><span>OTHER WAYS TO EXPLORE</span><button id="open-ledger" class="auth-option"><span class="auth-option-icon" aria-hidden="true">&#9636;</span><span><strong>Connect a Ledger</strong><small>Approve on your device</small></span><span aria-hidden="true">&#8599;</span></button><button id="open-watch" class="auth-option"><span class="auth-option-icon" aria-hidden="true">&#9678;</span><span><strong>Watch an address</strong><small>Explore without importing keys</small></span><span aria-hidden="true">&#8599;</span></button></div>
-  <p class="hint">One recovery phrase for supported networks. Mainnet and testnet balances are separate.</p>${'<details class="auth-disclosure restore-backup"><summary><span class="disclosure-icon" aria-hidden="true">↥</span><span><strong>Restore from a backup</strong><small>Import your encrypted wallet JSON</small></span></summary><p class="hint">Choose your encrypted backup and enter its original password. Set a password for this browser.</p><form id="import-form"><label for="keystore">Encrypted keystore JSON</label><input id="keystore" type="file" accept=".json,application/json" required><label for="import-password">Backup password</label><input id="import-password" type="password" required autocomplete="current-password"><label for="backup-local-password">New local password (12+ characters)</label><input id="backup-local-password" type="password" minlength="12" autocomplete="new-password" required><label for="backup-local-confirm">Confirm new local password</label><input id="backup-local-confirm" type="password" autocomplete="new-password" required><button class="quiet" '+(busy ? 'disabled' : '')+'>Restore encrypted wallet →</button></form></details>'}<details class="restore-phrase auth-disclosure"><summary><span class="disclosure-icon" aria-hidden="true">◇</span><span><strong>Restore with a recovery phrase</strong><small>Use the words from your test wallet</small></span></summary>${phraseRestoreForm()}</details><details class="auth-disclosure"><summary><span class="disclosure-icon" aria-hidden="true">▤</span><span><strong>Saved wallets</strong><small>Switch to a wallet stored on this browser</small></span></summary><p class="hint">Switching locks the current session. Use the selected wallet’s password to unlock it.</p><div class="saved-wallets">${savedWalletButtons()}</div>${createAnotherWalletMarkup()}</details></section>
-  <section class="intro auth-story"><div class="eyebrow">A LITTLE MORE OWNERSHIP</div><h2>Your wallet.<br><span>Your way.</span></h2><p>A calm place for your digital assets.<br>Built around one simple idea: you hold the keys.</p><div class="auth-art" aria-hidden="true"><div class="auth-orbit orbit-one"></div><div class="auth-orbit orbit-two"></div><div class="auth-vault"><div class="auth-vault-brand">&#9672; forma</div><span>SELF-CUSTODY</span><div class="auth-key">&#9671;</div><div class="auth-vault-bottom"><span>YOUR KEYS</span><span>YOUR CONTROL</span></div></div><div class="auth-art-tag"><i class="dot"></i> On your device</div></div><div class="auth-promises"><div><b>01</b><strong>Created by you</strong><p>Keys generated locally.</p></div><div><b>02</b><strong>Protected locally</strong><p>An encrypted local vault.</p></div><div><b>03</b><strong>Recovered by you</strong><p>Your backup. Your access.</p></div></div><p class="auth-story-note">Testnet wallet prototype. Use fresh test wallets only.</p></section></div>`;
+  <button class="primary" ${busy ? 'disabled' : ''}>${busy ? 'Working securely…' : hasVault ? 'Unlock wallet →' : 'Create wallet →'}</button></form><div class="auth-encryption-note"><span aria-hidden="true">&#9671;</span> Encrypted locally. Your keys stay with you.</div><div class="auth-alternatives"><span>OTHER WAYS TO EXPLORE</span><button id="open-ledger" class="auth-option"><span class="auth-option-icon" aria-hidden="true">&#9636;</span><span><strong>Connect a Ledger</strong><small>Approve on your device</small></span><span aria-hidden="true">&#8599;</span></button><button id="open-watch" class="auth-option"><span class="auth-option-icon" aria-hidden="true">&#9678;</span><span><strong>Watch an address</strong><small>Explore without importing keys</small></span><span aria-hidden="true">&#8599;</span></button></div>
+  <p class="hint">One recovery phrase for supported networks. Mainnet and testnet balances are separate.</p>${'<details class="auth-disclosure restore-backup"><summary><span class="disclosure-icon" aria-hidden="true">↥</span><span><strong>Restore from a backup</strong><small>Import your encrypted wallet JSON</small></span></summary><p class="hint">Choose your encrypted backup and enter its original password. Set a password for this browser.</p><form id="import-form"><label for="keystore">Encrypted keystore JSON</label><input id="keystore" type="file" accept=".json,application/json" required><label for="import-password">Backup password</label><input id="import-password" type="password" required autocomplete="current-password"><label for="backup-local-password">New local password (12+ characters)</label><input id="backup-local-password" type="password" minlength="12" autocomplete="new-password" required><label for="backup-local-confirm">Confirm new local password</label><input id="backup-local-confirm" type="password" autocomplete="new-password" required><button class="quiet" '+(busy ? 'disabled' : '')+'>Restore encrypted wallet →</button></form></details>'}<details class="restore-phrase auth-disclosure"><summary><span class="disclosure-icon" aria-hidden="true">◇</span><span><strong>Restore with a recovery phrase</strong><small>Use the words from your wallet</small></span></summary>${phraseRestoreForm()}</details><details class="auth-disclosure"><summary><span class="disclosure-icon" aria-hidden="true">▤</span><span><strong>Saved wallets</strong><small>Switch to a wallet stored on this browser</small></span></summary><p class="hint">Switching locks the current session. Use the selected wallet’s password to unlock it.</p><div class="saved-wallets">${savedWalletButtons()}</div>${createAnotherWalletMarkup()}</details></section>
+  <section class="intro auth-story"><div class="eyebrow">A LITTLE MORE OWNERSHIP</div><h2>Your wallet.<br><span>Your way.</span></h2><p>A calm place for your digital assets.<br>Built around one simple idea: you hold the keys.</p><div class="auth-art" aria-hidden="true"><div class="auth-orbit orbit-one"></div><div class="auth-orbit orbit-two"></div><div class="auth-vault"><div class="auth-vault-brand">&#9672; forma</div><span>SELF-CUSTODY</span><div class="auth-key">&#9671;</div><div class="auth-vault-bottom"><span>YOUR KEYS</span><span>YOUR CONTROL</span></div></div><div class="auth-art-tag"><i class="dot"></i> On your device</div></div><div class="auth-promises"><div><b>01</b><strong>Created by you</strong><p>Keys generated locally.</p></div><div><b>02</b><strong>Protected locally</strong><p>An encrypted local vault.</p></div><div><b>03</b><strong>Recovered by you</strong><p>Your backup. Your access.</p></div></div><p class="auth-story-note">Self-custody prototype. Keep a separate backup for every wallet.</p></section></div>`;
 }
 
-function networkOptionsMarkup() { return preferredNetworks(localStorage, selectedNetwork).map(id => `<option value="${id}" ${id === selectedNetwork ? 'selected' : ''}>${escape(networkAsset(id).network)}</option>`).join(''); }
-function networkAccountsMarkup() { const choices = [...new Set([selectedNetwork, ...preferredNetworks(localStorage, selectedNetwork)])].slice(0, 6); return `<section id="network-accounts" class="card"><div class="section-heading"><h2>Your wallet networks</h2><button id="manage-networks" type="button" class="quiet">Manage ${networkIds.length} networks</button></div><p>EVM networks share your selected Ethereum account address; balances and token contracts stay separate on each chain. Bitcoin and Solana use their own derived addresses.</p><div class="account-network-grid">${choices.map(id => `<button type="button" class="quiet" data-account-network="${id}" aria-pressed="${id === selectedNetwork}">${assetLogo(networkAsset(id).symbol, true)} ${escape(networkAsset(id).network)}</button>`).join('')}</div></section>`; }
+function walletContextMarkup(){return `<section class="wallet-context" aria-label="Wallet context"><label>Environment<select id="environment-select" aria-label="Wallet environment"><option value="mainnet" ${isMainnetNetwork(selectedNetwork)?'selected':''}>Mainnet</option><option value="testnet" ${!isMainnetNetwork(selectedNetwork)?'selected':''}>Testnet</option></select></label><label>Account<select id="account-select" aria-label="Wallet account">${accountOptions()}</select></label><label class="context-chain">Network<select id="network-select" aria-label="Wallet network">${networkOptionsMarkup()}</select></label></section>`;}
+function networkOptionsMarkup() { return preferredNetworks(localStorage, selectedNetwork).filter(id=>isMainnetNetwork(id)===isMainnetNetwork(selectedNetwork)).map(id => `<option value="${id}" ${id === selectedNetwork ? 'selected' : ''}>${escape(networkLabel(id))}</option>`).join(''); }
+function networkAccountsMarkup() { const choices = [...new Set([selectedNetwork, ...preferredNetworks(localStorage, selectedNetwork).filter(id=>isMainnetNetwork(id)===isMainnetNetwork(selectedNetwork))])].slice(0, 6); return `<section id="network-accounts" class="card"><div class="section-heading"><h2>Your networks</h2><button id="manage-networks" type="button" class="quiet">Manage ${networkIds.length} networks</button></div><p>Choose a chain. Your environment selection applies across the wallet.</p><div class="account-network-grid">${choices.map(id => `<button type="button" class="quiet" data-account-network="${id}" aria-pressed="${id === selectedNetwork}">${assetLogo(networkAsset(id).symbol, true)} ${escape(networkLabel(id))}</button>`).join('')}</div></section>`; }
 
 function dashboard() {
   const address = active!.address;
@@ -818,10 +825,11 @@ function bind() {
   document.getElementById('portfolio-send')?.addEventListener('click', () => { navigate('transfer'); document.getElementById('recipient')?.focus(); });
   document.getElementById('portfolio-activity')?.addEventListener('click', () => navigate('activity'));
   document.getElementById('portfolio-privacy')?.addEventListener('click', () => { amountsHidden = !amountsHidden; localStorage.setItem('forma.amounts.hidden', String(amountsHidden)); updateAmountVisibility(); });
+  const restoreForm=document.getElementById('phrase-form') as HTMLFormElement|null;if(restoreForm)mountRecoveryWords(restoreForm);
   root.querySelectorAll<HTMLInputElement>('input[type="password"]').forEach(input => {
     input.dataset.secretInput='true';
     input.spellcheck=false; input.setAttribute('autocapitalize','off');input.setAttribute('autocorrect','off');
-    if(input.id==='import-phrase' || input.id==='seed-passphrase') return;
+    if(input.id==='import-phrase' || input.id==='seed-passphrase' || input.closest('.recovery-word-grid')) return;
     const wrapper = document.createElement('div');
     wrapper.className = 'password-field';
     input.before(wrapper);
@@ -864,6 +872,7 @@ function bind() {
     notice = 'Selected wallet is locked. Enter its password to unlock.';
     render();
   });
+  document.getElementById('environment-select')?.addEventListener('change',event=>{const live=(event.target as HTMLSelectElement).value==='mainnet';const next=environmentNetwork(selectedNetwork,live);notice=networkAsset(next).name!==networkAsset(selectedNetwork).name?'This chain has no supported counterpart in that environment. Ethereum selected.':'';selectNetwork(next,supportsPage(next,view)?view:'overview');});
   document.getElementById('account-select')?.addEventListener('change', event => switchAccount((event.target as HTMLSelectElement).value));
   root.querySelectorAll<HTMLButtonElement>('[data-switch-account]').forEach(button => button.onclick = () => switchAccount(button.dataset.switchAccount!));
   root.querySelectorAll<HTMLButtonElement>('[data-backup-account]').forEach(button => button.onclick = () => {
@@ -1049,6 +1058,7 @@ function bind() {
       if(version!==generation)return;
       saveVault(json,wallet.address);
       clearSecrets();generation++;active=wallet;exactBalance=null;balance='—';
+      pendingSeed={address:wallet.address,phrase:wallet.mnemonic!.phrase};
       const createdVersion=generation;
       await hydrateAccounts(password,wallet,json);
       if(generation!==createdVersion||active!==wallet)return;
@@ -1064,6 +1074,7 @@ function bind() {
       const passphrase = passphraseInput.value;
       // Clear even when validation fails; DOM fields must not retain failed secrets.
       phraseInput.value = '';
+      phraseInput.form?.querySelectorAll<HTMLInputElement>('.recovery-word-grid input').forEach(input=>input.value='');
       passphraseInput.value = '';
       validatePassword(field('new-password'), field('new-confirm'));
       const wallet = importPhrase(phrase, passphrase, Number(field('account-index')));
@@ -1105,12 +1116,13 @@ function bind() {
         const encrypted = await wallet.encrypt(password);
         if (version !== generation) return;
         saveVault(encrypted, wallet.address);
+        pendingSeed={address:wallet.address,phrase:wallet.mnemonic!.phrase};
         active = wallet;
       }
       if (active) await hydrateAccounts(password, active, localStorage.getItem(VAULT_KEY)!);
       if (version !== generation) return;
       loadHistory();
-      notice = vault ? 'Wallet unlocked.' : 'Wallet created. Download your encrypted backup before adding test funds.';
+      notice = vault ? 'Wallet unlocked.' : 'Wallet created. Save your recovery phrase and encrypted backup.';
       render();
       try { await refresh(); } catch { notice = 'Wallet ready. Balance unavailable: check your RPC connection and refresh.'; render(); }
     }, event.currentTarget as HTMLFormElement);

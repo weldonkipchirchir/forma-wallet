@@ -27,11 +27,11 @@ export function mountEntryTabs(host: HTMLElement) {
   const eyebrow=card.querySelector(':scope > .eyebrow'); eyebrow?.remove();
   unlock.append(title); if(intro) unlock.append(intro);
   for(const selector of ['#vault-form','.auth-encryption-note','.auth-alternatives']) { const el=card.querySelector(selector); if(el) unlock.append(el); }
-  restore.innerHTML='<div class="entry-pane-heading"><span class="entry-pane-icon" aria-hidden="true">↥</span><h2>Restore access.</h2><p>Bring your wallet to this browser with an encrypted backup or a test recovery phrase.</p></div>';
+  restore.innerHTML='<div class="entry-pane-heading"><span class="entry-pane-icon" aria-hidden="true">↥</span><h2>Restore access.</h2><p>Bring your wallet to this browser with an encrypted backup or a recovery phrase.</p></div>';
   restore.append(backup,phrase);
   wallets.innerHTML='<div class="entry-pane-heading"><span class="entry-pane-icon" aria-hidden="true">▤</span><h2>Your saved wallets.</h2><p>Choose a wallet, then unlock it with its own password.</p></div>';
   wallets.append(saved); (saved as HTMLDetailsElement).open=true; saved.classList.add('entry-saved-list');
-  const labels=[card.querySelector('#confirm')?'Create':'Unlock','Restore','Saved wallets'];
+  const labels=[unlock.querySelector('#confirm')?'Create':'Unlock','Restore','Saved wallets'];
   const select=(index:number)=>{
     panes.forEach((pane,i)=>{if(i!==index) scrubSecretInputs(pane);pane.hidden=i!==index; const button=nav.children[i] as HTMLButtonElement; button.setAttribute('aria-selected',String(i===index));button.tabIndex=i===index?0:-1;});
   };

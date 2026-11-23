@@ -90,7 +90,7 @@ export function installSelectPickers(root: HTMLElement) {
     function sync() {
       if (disposed) return;
       options = Array.from(select.options).filter(option => !option.hidden).map((option, index) => ({ value: option.value, label: option.label || option.text, disabled: option.disabled || (option.parentElement instanceof HTMLOptGroupElement && option.parentElement.disabled), index }));
-      trigger.textContent = select.selectedOptions[0]?.label || select.selectedOptions[0]?.text || 'Choose an option';
+      const label=ownerDocument.createElement('span');label.className='select-picker-label';label.textContent=select.selectedOptions[0]?.label || select.selectedOptions[0]?.text || 'Choose an option';trigger.replaceChildren(label);
       trigger.disabled = select.disabled; trigger.title = trigger.textContent;
       if (select.disabled) close(); else if (open) { renderOptions(); position(); }
     }
