@@ -1,4 +1,4 @@
-export type PickerOption = { value: string; label: string; disabled: boolean; index: number };
+export type PickerOption = { value: string; label: string; disabled: boolean; index: number; icon?: string };
 export function searchPickerOptions(options: PickerOption[], query: string) {
   const text = query.trim().toLocaleLowerCase().slice(0, 100);
   return options.filter(option => !text || option.label.toLocaleLowerCase().includes(text) || option.value.toLocaleLowerCase().includes(text)).slice(0, 100);
@@ -67,7 +67,7 @@ export function installSelectPickers(root: HTMLElement) {
       filtered.forEach((option, index) => {
         const item = ownerDocument.createElement('div'); item.className = 'select-picker-option'; item.id = `${id}-option-${index}`;
         item.setAttribute('role', 'option'); item.setAttribute('aria-selected', String(option.value === select.value)); item.setAttribute('aria-disabled', String(option.disabled));
-        item.textContent = option.label || 'Choose an option'; item.onmousedown = event => event.preventDefault(); item.onclick = () => choose(index); list.append(item);
+        item.textContent = option.label || 'Choose an option'; addIcon(item,option.icon); item.onmousedown = event => event.preventDefault(); item.onclick = () => choose(index); list.append(item);
       });
       active = filtered.findIndex(option => option.value === select.value && !option.disabled);
       if (active < 0) active = movePickerOption(filtered, -1, 1);
@@ -87,10 +87,11 @@ export function installSelectPickers(root: HTMLElement) {
       if (select.disabled || disposed) return;
       open = true; panel.hidden = false; trigger.setAttribute('aria-expanded', 'true'); search.value = ''; position(); renderOptions(); search.focus({ preventScroll: true });
     }
+    function addIcon(element:HTMLElement,path?:string){if(!path||!/^\/assets\/networks\/[a-z]+\.(png|svg|ico)$/.test(path))return;const image=ownerDocument.createElement('img');image.src=path;image.alt='';image.className='network-logo';image.width=22;image.height=22;element.prepend(image);}
     function sync() {
       if (disposed) return;
-      options = Array.from(select.options).filter(option => !option.hidden).map((option, index) => ({ value: option.value, label: option.label || option.text, disabled: option.disabled || (option.parentElement instanceof HTMLOptGroupElement && option.parentElement.disabled), index }));
-      const label=ownerDocument.createElement('span');label.className='select-picker-label';label.textContent=select.selectedOptions[0]?.label || select.selectedOptions[0]?.text || 'Choose an option';trigger.replaceChildren(label);
+      options = Array.from(select.options).filter(option => !option.hidden).map((option, index) => ({ value: option.value, label: option.label || option.text, disabled: option.disabled || (option.parentElement instanceof HTMLOptGroupElement && option.parentElement.disabled), index,icon:option.dataset.networkIcon }));
+      const label=ownerDocument.createElement('span');label.className='select-picker-label';label.textContent=select.selectedOptions[0]?.label || select.selectedOptions[0]?.text || 'Choose an option';trigger.replaceChildren(label);addIcon(trigger,select.selectedOptions[0]?.dataset.networkIcon);
       trigger.disabled = select.disabled; trigger.title = trigger.textContent;
       if (select.disabled) close(); else if (open) { renderOptions(); position(); }
     }

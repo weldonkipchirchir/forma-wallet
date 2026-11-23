@@ -29,7 +29,7 @@ export function mountEntryTabs(host: HTMLElement) {
   for(const selector of ['#vault-form','.auth-encryption-note','.auth-alternatives']) { const el=card.querySelector(selector); if(el) unlock.append(el); }
   restore.innerHTML='<div class="entry-pane-heading"><span class="entry-pane-icon" aria-hidden="true">↥</span><h2>Restore access.</h2><p>Bring your wallet to this browser with an encrypted backup or a recovery phrase.</p></div>';
   restore.append(backup,phrase);
-  wallets.innerHTML='<div class="entry-pane-heading"><span class="entry-pane-icon" aria-hidden="true">▤</span><h2>Your saved wallets.</h2><p>Choose a wallet, then unlock it with its own password.</p></div>';
+  wallets.innerHTML='<div class="entry-pane-heading"><span class="entry-pane-icon" aria-hidden="true">▤</span><h2>Your wallets, in one place.</h2><p>Unlock a saved wallet or create a fresh one. No existing phrase is needed to start.</p></div>';
   wallets.append(saved); (saved as HTMLDetailsElement).open=true; saved.classList.add('entry-saved-list');
   const labels=[unlock.querySelector('#confirm')?'Create':'Unlock','Restore','Saved wallets'];
   const select=(index:number)=>{
@@ -42,6 +42,11 @@ export function mountEntryTabs(host: HTMLElement) {
     nav.append(button);
   });
   const top=card.querySelector('.auth-card-top'); top?.after(nav); nav.after(...panes); card.classList.add('entry-console'); select(0);
+  if(!unlock.querySelector('#confirm')){
+    const create=document.createElement('button');create.type='button';create.className='quiet entry-create-wallet';create.textContent='New here? Create a wallet & recovery phrase';
+    create.onclick=()=>{select(2);const details=wallets.querySelector<HTMLDetailsElement>('.new-wallet-choice');if(details){details.open=true;details.scrollIntoView({block:'nearest',behavior:'smooth'});details.querySelector<HTMLInputElement>('input')?.focus({preventScroll:true});}};
+    unlock.append(create);
+  }
   // Keep form validation visible when a browser reports an invalid field.
   card.addEventListener('invalid',event=>{const index=panes.findIndex(p=>p.contains(event.target as Node));if(index>=0)select(index);},true);
 }
