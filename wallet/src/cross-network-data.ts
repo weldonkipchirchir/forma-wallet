@@ -8,7 +8,7 @@ import {listedMainnetToken} from './mainnet-tokens';
 import {deriveMulti,unifiedRoot,clearMulti} from './multichain-core';
 import {readMultiBalance} from './multichain-network';
 import {createBitcoinMainnetApi} from './bitcoin-mainnet';
-import {createMainnetApi,mainnetMints,mainnetMintsKey,MAINNET_USDT,listedSolanaMint} from './solana-mainnet';
+import {createMainnetApi,mainnetMints,mainnetMintsKey,MAINNET_USDT,listedSolanaMint,listedSolanaDisplayMint} from './solana-mainnet';
 import {splKey,parseMints,readMint,readTokenAccount} from './sol-tokens';
 import {deriveTronAddress,parseTronTokens,tronTokenKey} from './tron-core';
 import {createTronMainnetReadApi,mainnetTronTokens,tronMainnetTokenKey,TRON_MAINNET_USDT} from './tron-mainnet';
@@ -46,7 +46,7 @@ export function createCrossNetworkReader(wallet:Wallet|HDNodeWallet,store:Pick<S
       const amount=live?await api.balance(keys.solAddress):(await readMultiBalance('sol',keys)).confirmed;guard();const rows=[row(network,'native','SOL','Solana',amount,9,true,false,'SOL')];
       let mints=live?mainnetMints(store.getItem(mainnetMintsKey(keys.solAddress))):parseMints(JSON.parse(store.getItem(splKey(keys.solAddress))||'[]'));
       if(live){try{const found=await api.discover(keys.solAddress);guard();mints=[...new Set([...mints,...found])].slice(0,250);}catch{guard();/* Tracked balances remain readable when discovery is unavailable. */}deadline=Date.now()+30000;}
-      partial?.(network,rows);for(const id of mints){guard();const listed=live?listedSolanaMint(id):undefined,official=!!listed;try{if(Date.now()>deadline)throw new Error('Scan deadline.');const mint=live?await api.mint(id):await readMint(id);guard();const value=live?await api.heldBalance(keys.solAddress,mint):(await readTokenAccount(keys.solAddress,mint)).amount;guard();rows.push(row(network,id,listed||'SPL',listed==='USDT'?'Tether USD':listed==='USDC'?'USD Coin':'SPL token',value,mint.decimals,official,true,listed));}catch{guard();rows.push(row(network,id,listed||'SPL','SPL token',undefined,6,official,true));}partial?.(network,rows);}return rows;
+      partial?.(network,rows);for(const id of mints){guard();const listed=live?listedSolanaMint(id):undefined,official=!!listed;try{if(Date.now()>deadline)throw new Error('Scan deadline.');const mint=live?(listedSolanaDisplayMint(id)||await api.mint(id)):await readMint(id);guard();const value=live?await api.heldBalance(keys.solAddress,mint):(await readTokenAccount(keys.solAddress,mint)).amount;guard();rows.push(row(network,id,listed||'SPL',listed==='USDT'?'Tether USD':listed==='USDC'?'USD Coin':'SPL token',value,mint.decimals,official,true,listed));}catch{guard();rows.push(row(network,id,listed||'SPL','SPL token',undefined,6,official,true));}partial?.(network,rows);}return rows;
     }
     const address=deriveTronAddress(wallet);guard();const api=live?createTronMainnetReadApi():{readTronBalance,readTrc20Balance};const value=await api.readTronBalance(address);guard();const rows=[row(network,'native','TRX','TRON',value.balance,6,true,false,'TRX')];
     const tokens=live?mainnetTronTokens(store.getItem(tronMainnetTokenKey(address))):parseTronTokens(JSON.parse(store.getItem(tronTokenKey(address))||'[]'));

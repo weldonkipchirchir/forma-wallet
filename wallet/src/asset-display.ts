@@ -1,4 +1,4 @@
-import { boundedJson } from './bounded-response';
+import {readUsdReference} from './price-reference';
 import './asset-display.css';
 import {networkLogo} from './network-identity';
 import type {NetworkId} from './network-context';
@@ -33,18 +33,11 @@ export function assetTable(rows: AssetDisplayRow[], hidden: boolean, allowTokens
     <div class="holdings-heading"><div><div class="eyebrow">ASSETS ON THIS NETWORK</div><h2>Your holdings</h2></div><div class="holdings-total"><strong>${hidden ? '••••••' : priced.length && Number.isFinite(total) ? escape(referenceDollars(total)) : 'USD unavailable'}</strong><small>${mode === 'mainnet' ? 'Estimated' : 'Hypothetical'} priced subtotal · ${priced.length}/${rows.length} assets priced</small></div></div>
     <div class="holdings-toolbar"><label>Search assets<input type="search" data-holdings-search maxlength="100" placeholder="Name, symbol or contract" autocomplete="off"></label><label class="holdings-zero"><input type="checkbox" data-holdings-zero ${hidden ? 'disabled' : ''}> Hide zero balances</label><button type="button" class="text-button" data-holdings-reset hidden>Clear filters</button></div>
     <div class="holdings-meta"><span data-holdings-count role="status">${rows.length} of ${rows.length} assets shown</span><span>Subtotal covers all tracked assets with a price</span></div>
-    <details class="holdings-explainer"><summary>About ${mode === 'mainnet' ? 'USD estimates' : 'testnet values'} and price coverage</summary><p class="hint">${mode === 'mainnet' ? 'Mainnet assets are real funds. USD estimates are indicative, not executable quotes or a guaranteed USDT peg.' : 'Test assets have no monetary value.'} USD references are Coinbase snapshots; reopen this view to update. Unverified token prices are unavailable, never assumed from their symbols. Tracking and discovery may miss holdings. Hide-zero filtering is disabled while balances are hidden.</p></details>
+    <details class="holdings-explainer"><summary>About ${mode === 'mainnet' ? 'USD estimates' : 'testnet values'} and price coverage</summary><p class="hint">${mode === 'mainnet' ? 'Mainnet assets are real funds. USD estimates are indicative, not executable quotes or a guaranteed USDT peg.' : 'Test assets have no monetary value.'} USD references use public Coinbase or Kraken snapshots; reopen this view to update. Unverified token prices are unavailable, never assumed from their symbols. Tracking and discovery may miss holdings. Hide-zero filtering is disabled while balances are hidden.</p></details>
     <div class="holdings-columns" aria-hidden="true"><span>Asset</span><span>Amount</span><span>USD reference</span></div><div class="holdings-list">${rowMarkup}</div>
     <div class="holdings-empty" data-holdings-empty ${rows.length ? 'hidden' : ''}><strong>No matching assets</strong><p>Clear your filters or use Tokens to find and import holdings on this network.</p></div>
     <div class="holdings-footer" ${allowTokens ? '' : 'hidden'}><span class="hint">Missing an asset? Find holdings or import its contract on Tokens.</span><button type="button" class="quiet" data-open-tokens>Manage tokens</button></div></div>`;
 }
-const products: Record<string, string> = { ETH: 'ETH-USD', BTC: 'BTC-USD', SOL: 'SOL-USD', TRX: 'TRX-USD', POL: 'POL-USD', AVAX: 'AVAX-USD', BNB: 'BNB-USD', USDT: 'USDT-USD', USDC: 'USDC-USD' };
 export async function readNativeReference(symbol: string, signal: AbortSignal): Promise<number> {
-  const product = products[symbol];
-  if (!product) throw new Error('No trusted native reference configured.');
-  const response = await fetch(`https://api.exchange.coinbase.com/products/${product}/ticker`, { signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]), credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error' });
-  if (!response.ok) throw new Error('USD reference unavailable.');
-  const data = await boundedJson(response, 32000), price = Number(data.price);
-  if (!Number.isFinite(price) || price <= 0) throw new Error('Invalid USD reference.');
-  return price;
+  return readUsdReference(symbol,signal);
 }

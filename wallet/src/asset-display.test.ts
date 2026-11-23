@@ -38,6 +38,6 @@ describe('asset identity and reference display', () => {
   it('refuses arbitrary price lookup identifiers and invalid prices',async()=>{
     const fetch=vi.fn().mockResolvedValue(new Response('{"price":"NaN"}',{status:200})); vi.stubGlobal('fetch',fetch);
     await expect(readNativeReference('../secret',new AbortController().signal)).rejects.toThrow(); expect(fetch).not.toHaveBeenCalled();
-    await expect(readNativeReference('ETH',new AbortController().signal)).rejects.toThrow('Invalid USD');
+    await expect(readNativeReference('ETH',new AbortController().signal)).rejects.toThrow('USD prices are temporarily unavailable');
   });
 });

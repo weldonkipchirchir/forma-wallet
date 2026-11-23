@@ -9,6 +9,10 @@
 !security-policy.d.mts
 !src/
 !src/**
+!server/
+!server/**
+!api/
+!api/**
 !public/
 !public/**
 !scripts/

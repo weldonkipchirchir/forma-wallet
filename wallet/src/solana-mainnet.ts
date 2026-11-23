@@ -10,6 +10,8 @@ export const SOL_MAINNET_GENESIS = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d
 export const MAINNET_USDT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
 export const MAINNET_USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 export function listedSolanaMint(address:string){return address===MAINNET_USDT?'USDT':address===MAINNET_USDC?'USDC':undefined;}
+/** Display-only metadata for pinned issuer mints. Sending still fetches/rechecks live mint metadata. */
+export function listedSolanaDisplayMint(address:string):SplMint|undefined{return listedSolanaMint(address)?{mint:address,decimals:6,mintAuthority:null,freezeAuthority:null}:undefined;}
 export const mainnetMintsKey = (owner: string) => `forma.sol.mainnet.mints.v1:${new PublicKey(owner).toBase58()}`;
 export const mainnetJournalKey = (owner: string) => `forma.sol.mainnet.submissions.v1:${new PublicKey(owner).toBase58()}`;
 export type MainnetSubmission = { id: string; to: string; amount: string; decimals: number; mint?: string; expiry: number; when: number; status: 'unknown' | 'pending' | 'confirmed' | 'failed' };
@@ -55,7 +57,7 @@ export function createMainnetApi(signal?: AbortSignal,connection:SolanaMainnetCo
     if (data?.jsonrpc !== '2.0' || data.id !== id || data.error !== undefined || !Object.prototype.hasOwnProperty.call(data,'result')) throw new Error('Solana Mainnet request failed. Verify status before retrying.');
     return data.result;
   }
-  const readMethods=new Set(['getGenesisHash','getBalance','getAccountInfo','getTokenAccountsByOwner','getSignatureStatuses']);
+  const readMethods=new Set(['getGenesisHash','getBalance','getAccountInfo','getTokenAccountsByOwner','getSignatureStatuses','getSignaturesForAddress','getTransaction']);
   let readEndpoint=endpoint;
   async function rpc(method:string,params:unknown[]=[]):Promise<any>{
     const read=readFallback&&readMethods.has(method);

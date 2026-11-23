@@ -120,7 +120,7 @@ function updateAmountVisibility() {
 }
 const pages: Record<string, { title: string; subtitle: string; icon: string }> = {
   networks: { title: 'Choose your network.', subtitle: 'Search supported networks, save favorites and manage your network list.', icon: '⊞' },
-  swap: {title:'Swap tokens',subtitle:'Swap Ethereum USDT and USDC with local signing and a separate review for every step.',icon:'&#8644;'},
+  swap: {title:'Swap tokens',subtitle:'Swap Ethereum stablecoins or explore the cross-chain quote integration.',icon:'&#8644;'},
   buy: {title:'Buy USDT',subtitle:'Purchase with a card through an external provider.',icon:'+'},
   cards: { title: 'Explore virtual cards.', subtitle: 'Demo controls and synthetic purchases. No real payments or issued cards.', icon: '▱' },
   tokens: { title: 'Tokens', subtitle: 'Track and transfer ERC-20 tokens on Ethereum Sepolia.', icon: 'T' },
