@@ -1,4 +1,8 @@
 export function joinRecoveryWords(words:string[]){return words.map(word=>word.trim().normalize('NFKD').toLowerCase()).join(' ');}
+export function backupPositions(length:number,random:()=>number=()=>crypto.getRandomValues(new Uint32Array(1))[0]){
+  if(![12,15,18,21,24].includes(length))throw new Error('Unsupported recovery phrase length.');
+  const positions=Array.from({length},(_,i)=>i);for(let i=length-1;i>0;i--){const j=random()%(i+1);[positions[i],positions[j]]=[positions[j],positions[i]];}return positions.slice(0,3).sort((a,b)=>a-b);
+}
 export function mountRecoveryWords(form:HTMLFormElement){
   const legacy=form.querySelector<HTMLInputElement>('#import-phrase')!;legacy.hidden=true;
   const group=document.createElement('div');group.className='recovery-entry';
@@ -13,13 +17,20 @@ export function mountRecoveryWords(form:HTMLFormElement){
 export function mountSeedBackup(host:HTMLElement,phrase:string,done:()=>void){
   const words=phrase.split(' ');const panel=document.createElement('div');panel.className='seed-backdrop';panel.innerHTML='<section class="seed-setup" role="dialog" aria-modal="true" aria-labelledby="seed-title"><div class="eyebrow">WALLET CREATED</div><h2 id="seed-title">Save your recovery phrase.</h2><p>Write these words in order and keep them offline. Anyone with them can spend your funds. Never send them to support.</p><div class="seed-words"></div><button type="button" class="quiet" data-seed-hide>Hide phrase</button><form><h3>Confirm your backup</h3><p>Enter the requested words from your saved copy.</p><div class="seed-checks"></div><p role="alert" class="form-error" hidden></p><button class="primary">Confirm backup & continue</button></form></section>';
   const list=panel.querySelector<HTMLElement>('.seed-words')!;const show=()=>{list.replaceChildren();words.forEach((word,i)=>{const span=document.createElement('span');const number=document.createElement('small');number.textContent=String(i+1);const value=document.createElement('strong');value.textContent=word;span.append(number,value);list.append(span);});};show();
-  let visible=true;const toggle=panel.querySelector<HTMLButtonElement>('[data-seed-hide]')!;toggle.onclick=()=>{visible=!visible;if(visible)show();else list.replaceChildren();toggle.textContent=visible?'Hide phrase':'Show phrase';};
-  const positions=[0,Math.floor(words.length/2),words.length-1];const checks=panel.querySelector<HTMLElement>('.seed-checks')!;
+  let visible=true,disposed=false,copied=false;const toggle=panel.querySelector<HTMLButtonElement>('[data-seed-hide]')!;toggle.onclick=()=>{visible=!visible;if(visible)show();else list.replaceChildren();toggle.textContent=visible?'Hide phrase':'Show phrase';};
+  const copy=document.createElement('button');copy.type='button';copy.className='quiet';copy.textContent='Copy phrase';
+  const verify=document.createElement('button');verify.type='button';verify.className='quiet';verify.textContent='Verify clipboard copy';verify.disabled=true;
+  const status=document.createElement('p');status.className='hint';status.setAttribute('role','status');status.textContent='Offline storage is recommended. Clipboard contents can be read by other apps.';
+  toggle.after(copy,verify,status);
+  copy.onclick=async()=>{if(disposed)return;copy.disabled=true;try{await navigator.clipboard.writeText(words.join(' '));if(disposed)return;copied=true;verify.disabled=false;status.textContent='Copied. You can verify the clipboard, but still confirm words from your saved copy.';}catch{if(!disposed)status.textContent='Copy unavailable. Write the numbered words down privately instead.';}finally{if(!disposed)copy.disabled=false;}};
+  verify.onclick=async()=>{if(disposed||!copied)return;verify.disabled=true;try{const text=await navigator.clipboard.readText();if(disposed)return;status.textContent=text.trim()===words.join(' ')?'Clipboard matches. This does not prove an offline backup exists.':'Clipboard does not match. Copy again or use your offline notes.';}catch{if(!disposed)status.textContent='Clipboard read was unavailable or denied. Use the numbered-word confirmation below.';}finally{if(!disposed)verify.disabled=false;}};
+  const positions=backupPositions(words.length);const checks=panel.querySelector<HTMLElement>('.seed-checks')!;
   positions.forEach(position=>{const label=document.createElement('label');label.textContent=`Word ${position+1}`;const input=document.createElement('input');input.type='password';input.autocomplete='off';input.dataset.secretInput='true';input.spellcheck=false;input.required=true;label.append(input);checks.append(label);});
+  const safety=document.createElement('label');safety.className='check';const acknowledgement=document.createElement('input');acknowledgement.type='checkbox';acknowledgement.required=true;safety.append(acknowledgement,document.createTextNode('I understand anyone with these words can spend my funds, and support cannot reset or recover them.'));checks.after(safety);
   panel.querySelector('form')!.onsubmit=event=>{event.preventDefault();const inputs=[...checks.querySelectorAll<HTMLInputElement>('input')];if(inputs.some((input,i)=>input.value.trim().toLowerCase()!==words[positions[i]])){inputs.forEach(input=>input.value='');const error=panel.querySelector<HTMLElement>('[role=alert]')!;error.hidden=false;error.textContent='These words do not match. Check their numbered positions and try again.';return;}words.fill('');panel.remove();done();};
   const background=[...host.children].filter((element):element is HTMLElement=>element instanceof HTMLElement);background.forEach(element=>element.inert=true);
   host.append(panel);panel.querySelector<HTMLButtonElement>('button')!.focus();
   const timer=setTimeout(()=>{visible=false;list.replaceChildren();toggle.textContent='Show phrase';},60000);
   panel.addEventListener('keydown',event=>{if(event.key==='Tab'){const controls=[...panel.querySelectorAll<HTMLElement>('button,input')];const first=controls[0],last=controls[controls.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}});
-  return()=>{clearTimeout(timer);words.fill('');background.forEach(element=>element.inert=false);panel.remove();};
+  return()=>{disposed=true;clearTimeout(timer);words.fill('');background.forEach(element=>element.inert=false);panel.remove();};
 }

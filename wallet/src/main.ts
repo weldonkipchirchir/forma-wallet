@@ -71,6 +71,7 @@ let disposeTron: (() => void) | undefined;
 let disposeSolanaMainnet: (() => void) | undefined;
 let pendingSeed: {address:string;phrase:string}|undefined;
 let disposeSeed: (()=>void)|undefined;
+let disposeCrossOverview:(()=>void)|undefined;
 let disposeBitcoinMainnet: (() => void) | undefined;
 let disposeWatch: (() => void) | undefined;
 let disposeTokenSummary: (() => void) | undefined;
@@ -139,7 +140,7 @@ function updateSidebar() {
   document.getElementById('mobile-menu-toggle')?.setAttribute('aria-expanded', String(mobileMenuOpen));
   document.getElementById('sidebar-backdrop')?.setAttribute('tabindex', mobileMenuOpen ? '0' : '-1');
   const sidebar = document.getElementById('wallet-sidebar');
-  if (sidebar) sidebar.inert = window.matchMedia('(max-width: 650px)').matches && !mobileMenuOpen;
+  if (sidebar) sidebar.inert = !!pendingSeed || (window.matchMedia('(max-width: 650px)').matches && !mobileMenuOpen);
 }
 window.addEventListener('resize', updateSidebar);
 document.addEventListener('keydown', event => {
@@ -487,6 +488,7 @@ window.addEventListener('pageshow', event=>{if(event.persisted) {scrubSecretInpu
 window.addEventListener('storage', event => { if ((event.key === VAULT_KEY || event.key === ACCOUNTS_KEY || (active && event.key === contactsKey(active.address)) || event.key === null) && (active || busy)) lock(); });
 
 function render() {
+  disposeCrossOverview?.();disposeCrossOverview=undefined;
   disposeSeed?.();disposeSeed=undefined;
   replacementPlan = null; replacementReviewedAt = 0;
   disposeMarket?.(); disposeMarket = undefined;
@@ -515,9 +517,10 @@ function render() {
   const solanaMainnet = !!active && selectedNetwork === 'sol-mainnet' && ['overview','portfolio','transfer','tokens','activity'].includes(view);
   const available = supportsPage(selectedNetwork, view);
   const asset = networkAsset(selectedNetwork);
-  const title = active && ['overview','portfolio','transfer','activity','market','tokens','contacts','watch'].includes(view) ? networkHeading(selectedNetwork, view) : page.title;
-  const subtitle = view === 'market' ? `Live ${asset.symbol}/USDT prices and historical candles.` : selectedNetwork !== 'eth' ? `${networkLabel(selectedNetwork)} · Assets and activity for your selected account.` : page.subtitle;
+  const title = active && view==='overview'?'Your portfolio':active && ['overview','portfolio','transfer','activity','market','tokens','contacts','watch'].includes(view) ? networkHeading(selectedNetwork, view) : page.title;
+  const subtitle = active&&view==='overview'?'Assets across all supported networks in your selected environment.':view === 'market' ? `Live ${asset.symbol}/USDT prices and historical candles.` : selectedNetwork !== 'eth' ? `${networkLabel(selectedNetwork)} · Assets and activity for your selected account.` : page.subtitle;
   const content = active && view === 'networks' ? '<section id="network-manager-panel"></section>'
+    : active && view === 'overview' ? '<section id="cross-network-overview"></section>'
     : active && view === 'cards' ? '<section id="demo-cards-panel"></section>'
     : !available ? `<section class="card"><h2>${asset.name}: feature unavailable</h2><p>This feature is not enabled on the selected network. Choose an available feature from the navigation or switch networks.</p></section>`
     : active && view === 'market' ? marketMarkup(selectedNetwork)
@@ -539,6 +542,17 @@ function render() {
     ${content}
     <footer class="wallet-footer"><div class="footer-brand"><strong>FORMA</strong><span>Your keys. Your control.</span></div><div class="footer-meta"><span id="footer-network"><i class="dot"></i>${networkLabel(selectedNetwork)}</span><span>Self-custody</span><span class="footer-version">Prototype v0.1</span></div></footer></section></main>`;
   document.getElementById('lock')?.addEventListener('click', lock);
+  if(active&&view==='overview'){
+    const wallet=active,version=generation,environment=isMainnetNetwork(selectedNetwork),host=document.getElementById('cross-network-overview')!;
+    void import('./cross-network-ui').then(module=>{
+      if(!host.isConnected||generation!==version||active!==wallet)return;
+      disposeCrossOverview=module.mountCrossNetworkOverview(host,wallet,environment,{
+        current:()=>active===wallet&&generation===version&&view==='overview'&&isMainnetNetwork(selectedNetwork)===environment,
+        hidden:()=>amountsHidden,toggleHidden:()=>{amountsHidden=!amountsHidden;localStorage.setItem('forma.amounts.hidden',String(amountsHidden));},
+        choose:network=>selectNetwork(network,supportsPage(network,'tokens')?'tokens':'transfer'),
+      });
+    }).catch(()=>{if(host.isConnected&&generation===version)host.textContent='Portfolio could not load. Reload or select a network to inspect its assets.';});
+  }
   if (active && view === 'networks') {
     disposeNetworks = mountNetworkManager(document.getElementById('network-manager-panel')!, selectedNetwork,
       network => selectNetwork(network, 'overview'),
@@ -566,9 +580,9 @@ function render() {
   groups.forEach(id => { const el = document.getElementById(id); if (el) el.hidden = !visible.includes(id); });
   if (selectedNetwork === 'eth' && active && view === 'portfolio') disposePortfolio = mountPortfolioValue(document.getElementById('portfolio-panel')!, history, active.address, exactBalance, () => amountsHidden);
   if (selectedNetwork === 'eth' && active && view === 'tokens') { const wallet = active; const version = generation; disposeTokens = mountTokens(document.getElementById('tokens-panel')!, provider, wallet, () => active === wallet && version === generation, () => amountsHidden); }
-  if (selectedNetwork === 'eth' && active && ['overview', 'portfolio'].includes(view)) disposeTokenSummary = mountTokenSummary(document.getElementById(view === 'overview' ? 'overview-assets' : 'token-assets-summary')!, provider, active.address, () => amountsHidden);
+  if (selectedNetwork === 'eth' && active && view==='portfolio') disposeTokenSummary = mountTokenSummary(document.getElementById('token-assets-summary')!, provider, active.address, () => amountsHidden);
   document.getElementById('open-ledger')?.addEventListener('click', () => { selectedNetwork = 'eth'; notice = 'Hardware wallet mode. Your local wallet remains locked.'; navigate('ledger'); });
-  if (tron && active) {
+  if (tron && active && view!=='overview') {
     const wallet = active, version = generation, network=selectedNetwork, host = document.getElementById('tron-panel')!;
     void import('./tron-workspace').then(module => {
       if (!host.isConnected || generation !== version || active !== wallet || selectedNetwork !== network) return;
@@ -580,7 +594,7 @@ function render() {
       });
     }).catch(() => { if (host.isConnected && generation === version) host.textContent = 'TRON workspace could not load. Try refreshing.'; });
   }
-  if (bitcoinMainnet && active) {
+  if (bitcoinMainnet && active && view!=='overview') {
     const wallet=active,version=generation,host=document.getElementById('bitcoin-mainnet-panel')!;
     void import('./bitcoin-mainnet-ui').then(module=>{
       if(!host.isConnected||generation!==version||active!==wallet||selectedNetwork!=='btc-mainnet')return;
@@ -591,7 +605,7 @@ function render() {
       });
     }).catch(()=>{if(host.isConnected&&generation===version)host.textContent='Bitcoin Mainnet workspace could not load. Reload to retry.';});
   }
-  if (solanaMainnet && active) {
+  if (solanaMainnet && active && view!=='overview') {
     const wallet = active, version = generation, host = document.getElementById('solana-mainnet-panel')!;
     void import('./solana-mainnet-ui').then(module => {
       if (!host.isConnected || generation !== version || active !== wallet || selectedNetwork !== 'sol-mainnet') return;
@@ -602,7 +616,7 @@ function render() {
       });
     }).catch(() => { if (host.isConnected && generation === version) host.textContent = 'Solana Mainnet workspace could not load. Reload to retry.'; });
   }
-  if (additionalEvm && active && isAdditionalEvm(selectedNetwork)) {
+  if (additionalEvm && active && view!=='overview' && isAdditionalEvm(selectedNetwork)) {
     const network = selectedNetwork, wallet = active, version = generation;
     const host = document.getElementById('evm-panel')!;
     void import('./evm-workspace').then(module => {
@@ -614,7 +628,7 @@ function render() {
       });
     }).catch(() => { if (host.isConnected) host.textContent = 'Unable to load this testnet. Refresh to retry.'; });
   }
-  if (native && active && (selectedNetwork === 'btc' || selectedNetwork === 'sol')) {
+  if (native && active && view!=='overview' && (selectedNetwork === 'btc' || selectedNetwork === 'sol')) {
     const host = document.getElementById('multi-panel')!, version = generation, wallet = active, network = selectedNetwork;
     void import('./multichain').then(module => {
       if (!host.isConnected || version !== generation || selectedNetwork !== network) return;
@@ -702,7 +716,7 @@ function onboarding(hasVault: boolean) {
 
 function walletContextMarkup(){return `<section class="wallet-context" aria-label="Wallet context"><label>Environment<select id="environment-select" aria-label="Wallet environment"><option value="mainnet" ${isMainnetNetwork(selectedNetwork)?'selected':''}>Mainnet</option><option value="testnet" ${!isMainnetNetwork(selectedNetwork)?'selected':''}>Testnet</option></select></label><label>Account<select id="account-select" aria-label="Wallet account">${accountOptions()}</select></label><label class="context-chain">Network<select id="network-select" aria-label="Wallet network">${networkOptionsMarkup()}</select></label></section>`;}
 function networkOptionsMarkup() { return preferredNetworks(localStorage, selectedNetwork).filter(id=>isMainnetNetwork(id)===isMainnetNetwork(selectedNetwork)).map(id => `<option value="${id}" ${id === selectedNetwork ? 'selected' : ''}>${escape(networkLabel(id))}</option>`).join(''); }
-function networkAccountsMarkup() { const choices = [...new Set([selectedNetwork, ...preferredNetworks(localStorage, selectedNetwork).filter(id=>isMainnetNetwork(id)===isMainnetNetwork(selectedNetwork))])].slice(0, 6); return `<section id="network-accounts" class="card"><div class="section-heading"><h2>Your networks</h2><button id="manage-networks" type="button" class="quiet">Manage ${networkIds.length} networks</button></div><p>Choose a chain. Your environment selection applies across the wallet.</p><div class="account-network-grid">${choices.map(id => `<button type="button" class="quiet" data-account-network="${id}" aria-pressed="${id === selectedNetwork}">${assetLogo(networkAsset(id).symbol, true)} ${escape(networkLabel(id))}</button>`).join('')}</div></section>`; }
+function networkAccountsMarkup() { const choices = [...new Set([selectedNetwork, ...preferredNetworks(localStorage, selectedNetwork).filter(id=>isMainnetNetwork(id)===isMainnetNetwork(selectedNetwork))])].slice(0, 6); return `<section id="network-accounts" class="card"><div class="section-heading"><h2>Your networks</h2><button id="manage-networks" type="button" class="quiet">Manage ${networkIds.filter(id=>isMainnetNetwork(id)===isMainnetNetwork(selectedNetwork)).length} networks</button></div><p>Choose a chain. Your environment selection applies across the wallet.</p><div class="account-network-grid">${choices.map(id => `<button type="button" class="quiet" data-account-network="${id}" aria-pressed="${id === selectedNetwork}">${assetLogo(networkAsset(id).symbol, true)} ${escape(networkLabel(id))}</button>`).join('')}</div></section>`; }
 
 function dashboard() {
   const address = active!.address;
