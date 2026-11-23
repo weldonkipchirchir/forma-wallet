@@ -33,16 +33,16 @@ Validate with `docker run --rm -e WALLET_DOMAIN=wallet.example.invalid IMAGE cad
 References: [Caddy file serving](https://caddyserver.com/docs/caddyfile/directives/file_server), [Caddy headers](https://caddyserver.com/docs/caddyfile/directives/header), [checkout action](https://github.com/actions/checkout), [Node setup action](https://github.com/actions/setup-node).
 
 
-## Optional Relay quote preview on Vercel
+## Relay cross-chain native deposits on Vercel
 
-The root `wallet/api/bridge.mjs` is a Vercel Node function. Shared public policy lives in `wallet/server/`; the frontend never imports the function or its environment access. Existing static Docker/Caddy hosting does not run this API, so bridge previews stay unavailable there unless a separately reviewed backend is deployed.
+The root `wallet/api/bridge.mjs` is a Vercel Node function. Shared public policy lives in `wallet/server/`; the frontend never imports the function or its environment access. Existing static Docker/Caddy hosting does not run this API, so bridge quotes stay unavailable there unless a separately reviewed backend is deployed.
 
 1. Create a Relay application and obtain its API key privately.
 2. Start with a protected Vercel Preview deployment. In the Forma project, open **Environment Variables**, add `RELAY_API_KEY` for Preview only, and redeploy. Never use a `VITE_` name, paste the key into chat, or commit a local credentials file.
-3. Open Swap → Across networks. Missing-key deployments remain disabled. Key configuration enables quote requests only; this release never signs a bridge deposit.
-4. Validate representative real provider response formats and version/solver/chain metadata against the prepared checks before planning signing support. This development run used synthetic responses only.
+3. Open Swap → Across networks. Missing-key deployments remain disabled. Key configuration allows quote requests; native source signing requires successful validation and explicit user confirmation.
+4. Validate representative provider response formats and version/solver/chain metadata against the implemented checks in a controlled staging environment. This development run used synthetic responses only.
 5. Before exposing a paid provider key through a public production proxy, add durable shared rate limits, usage budgets/alerts, bot/abuse controls and an operational owner. The included 15-requests/minute in-memory IP limit is best effort per function instance, **not** a production-wide quota. A client-controlled Origin header is not authentication.
 
-Requests are allowlisted to fixed Relay endpoints, with bounded bodies/responses, redirects disabled, generic errors and no-store responses. The API key is sent only in the server-to-Relay header. The static CSP does not add Relay to browser connect-src. Provider responses are still untrusted; quote checks do not certify settlement safety or price fairness. A future release must add independent protocol-chain pins, live bytecode validation, simulation, explicit signing review, durable source submission tracking and destination/refund reconciliation before enabling a bridge send.
+Requests are allowlisted to fixed Relay endpoints, with bounded bodies/responses, redirects disabled, generic errors and no-store responses. The API key is sent only in the server-to-Relay header. The static CSP does not add Relay to browser connect-src. Provider responses are still untrusted; quote checks do not certify settlement safety or price fairness. The native-deposit client now adds independent protocol-chain pins, live source bytecode/admin checks, simulation, explicit signing review, durable submission tracking and status reconciliation. These checks are not an independent audit; actual provider compatibility and funded end-to-end settlement were not tested by the agent. Destination/refund status remains a provider claim with explorer links, rather than independent destination proof.
 
 [Vercel Node functions](https://vercel.com/docs/functions/runtimes/node-js) support `.mjs` entry points under the project root's `api/` directory. Vite's local server alone does not execute Vercel functions; use an isolated mocked config response for UI tests or an appropriately configured local server adapter.

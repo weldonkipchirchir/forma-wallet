@@ -1,21 +1,10 @@
 import {describe,it,expect} from 'vitest';
 import {Wallet,ZeroAddress,getBytes,toBeHex} from 'ethers';
 import {BRIDGE_NETWORKS,bridgeNetwork,bridgeRequest} from '../server/bridge-policy.mjs';
-import {verifyRelayQuote,relayOrderHash,relayDeposit,verifyRelayCode,relayAddress} from './relay-bridge';
+import {verifyRelayQuote,relayOrderHash,relayDeposit,verifyRelayCode,relayAddress,RELAY_FILL} from './relay-bridge';
 import runtime from './test-data/relay-runtime.json';
 import {bech32} from '@scure/base';
-// Published, synthetic test identity; never fund it.
-const solver=new Wallet(toBeHex(1,32)),owner=new Wallet(toBeHex(2,32)).address,other=new Wallet(toBeHex(3,32)).address;
-const depository=runtime[0].address,now=1795440000000;
-async function fixture(to='base-mainnet'){
-  const from=bridgeNetwork('ethereum-mainnet'),destination=bridgeNetwork(to),recipient=to==='sol-mainnet'?'GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB':to==='btc-mainnet'?bech32.encode('bc',[0,...bech32.toWords(new Uint8Array(20).fill(1))]):owner;
-  const input={from:from.id,to,amount:'10000000000000000',user:owner,recipient};
-  const metadata={chains:[from,destination].map(network=>({id:network.chainId,vmType:network.vm,protocol:{v2:{chainId:`chain-${network.chainId}`,depository}}}))};
-  const order:any={version:'v1',solverChainId:'ethereum',solver:solver.address,salt:toBeHex(4,32),inputs:[{payment:{chainId:'chain-1',currency:ZeroAddress,amount:input.amount,weight:'1'},refunds:[{chainId:'chain-1',recipient:owner,currency:ZeroAddress,minimumAmount:input.amount,deadline:now/1000+3600,extraData:'0x'}]}],output:{chainId:`chain-${destination.chainId}`,payments:[{recipient,currency:destination.native,minimumAmount:'995',expectedAmount:'1000'}],deadline:now/1000+120,calls:[],extraData:'0x'},fees:[]};
-  const orderId=relayOrderHash(order,from,destination),signature=await solver.signMessage(getBytes(orderId));
-  const quote:any={protocol:{v2:{hubType:'onchain',orderData:order,orderId,orderSignature:signature,paymentDetails:{depository,chainId:'chain-1',currency:ZeroAddress,amount:input.amount}}},steps:[{kind:'transaction',requestId:toBeHex(5,32),items:[{data:{from:owner,to:depository,chainId:1,value:input.amount,data:relayDeposit.encodeFunctionData('depositNative',[owner,orderId])}}]}]};
-  return{input,metadata,quote};
-}
+import {fixture,solver,owner,other,now} from './test-data/relay-fixture';
 describe('Relay quote preparation boundary',()=>{
   it.each(['base-mainnet','sol-mainnet','btc-mainnet'])('verifies an independently signed synthetic order to %s',async to=>{
     const f=await fixture(to),result=verifyRelayQuote(f.quote,f.input,f.metadata,now,solver.address);expect(result.value).toBe(10000000000000000n);expect(result.minimum).toBe(995n);
@@ -37,6 +26,10 @@ describe('Relay quote preparation boundary',()=>{
     if(change==='version')v.orderData.version='v2';
     if(change==='metadata')f.metadata.chains.push(f.metadata.chains[0]);
     expect(()=>verifyRelayQuote(f.quote,f.input,f.metadata,now,solver.address)).toThrow();
+  });
+  it('accepts the documented EVM fill encoding and zero-depositor shorthand without trusting changed chain names',async()=>{
+    const f=await fixture();f.quote.protocol.v2.orderData.output.extraData=toBeHex(BigInt(RELAY_FILL),32);const id=relayOrderHash(f.quote.protocol.v2.orderData,bridgeNetwork(f.input.from),bridgeNetwork(f.input.to));f.quote.protocol.v2.orderId=id;f.quote.protocol.v2.orderSignature=await solver.signMessage(getBytes(id));f.quote.steps[0].items[0].data.data=relayDeposit.encodeFunctionData('depositNative',[ZeroAddress,id]);expect(verifyRelayQuote(f.quote,f.input,f.metadata,now,solver.address).data).toBe(relayDeposit.encodeFunctionData('depositNative',[owner,id]));
+    f.metadata.chains[1].protocol.v2.chainId='ethereum';expect(()=>verifyRelayQuote(f.quote,f.input,f.metadata,now,solver.address)).toThrow();
   });
   it('rejects unsupported inputs, arbitrary properties, wrong chains and invalid recipients',()=>{
     const f={from:'ethereum-mainnet',to:'base-mainnet',amount:'10',user:owner,recipient:owner};expect(bridgeRequest(f).from.chainId).toBe(1);

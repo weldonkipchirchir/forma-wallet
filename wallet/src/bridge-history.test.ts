@@ -1,0 +1,11 @@
+import {describe,it,expect} from 'vitest';
+import {bridgeRecords,updateBridgeStatus,requireBridgeSettled,addBridgeRecord,requireBridgeNonce,type BridgeRecord} from './bridge-history';
+const h=(n:string)=>'0x'+n.repeat(64);
+const row:BridgeRecord={hash:h('1'),requestId:h('2'),orderId:h('3'),from:'ethereum-mainnet',to:'base-mainnet',amount:'1000',minimum:'900',recipient:'0x0000000000000000000000000000000000000001',when:1000,provider:'unknown',out:[]};
+const status={status:'success',originChainId:1,destinationChainId:8453,inTxHashes:[row.hash],txHashes:[h('4')]};
+describe('durable bridge status boundary',()=>{
+ it('binds provider settlement reports to exact source/destination and deposit hash',()=>{expect(updateBridgeStatus(row,status)).toMatchObject({provider:'success',out:[h('4')]});for(const bad of [{...status,originChainId:10},{...status,destinationChainId:1},{...status,inTxHashes:[h('5')]},{...status,txHashes:[]},{...status,txHashes:['https://attacker.invalid']},{...status,status:'completed'}])expect(()=>updateBridgeStatus(row,bad)).toThrow();});
+ it('keeps failed fills unresolved until a refund or delivery is reported with a transaction',()=>{const failed=updateBridgeStatus(row,{...status,status:'failure',txHashes:[],refundFailReason:'AMOUNT_TOO_LOW_TO_REFUND'});expect(()=>requireBridgeSettled([failed],new Set())).toThrow();expect(()=>requireBridgeSettled([updateBridgeStatus(row,{...status,status:'refund'})],new Set())).not.toThrow();expect(()=>requireBridgeSettled([row],new Set([row.hash]))).not.toThrow();});
+ it('blocks a stale RPC nonce below an already mined local transaction',()=>{for(const status of ['confirmed','failed']){const rows:any=[{status,nonce:3}];expect(()=>requireBridgeNonce(rows,3)).toThrow('older');expect(()=>requireBridgeNonce(rows,4)).not.toThrow();}});
+ it('blocks damaged, oversized, duplicate and cross-origin executable record data',()=>{expect(bridgeRecords(JSON.stringify([row]))).toHaveLength(1);for(const bad of ['{',JSON.stringify([row,row]),JSON.stringify([{...row,amount:1000}]),JSON.stringify([{...row,recipient:'<img onerror=x>'}]),JSON.stringify([{...row,provider:'success',out:['javascript:1']}]),'x'.repeat(150001)])expect(()=>bridgeRecords(bad)).toThrow();expect(()=>addBridgeRecord([row],{...row,hash:h('6')})).toThrow('already');});
+});
